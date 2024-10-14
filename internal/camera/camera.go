@@ -141,7 +141,6 @@ func (ws *WebcamServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		select {
 		case frameData := <-clientChan:
 			w.Write([]byte("--frame\r\nContent-Type: image/jpeg\r\n\r\n"))
-			log.Println("Writing frame", frameData)
 			w.Write(frameData)
 			w.Write([]byte("\r\n"))
 			w.(http.Flusher).Flush()

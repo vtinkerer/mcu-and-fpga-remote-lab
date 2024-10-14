@@ -11,23 +11,13 @@ import (
 )
 
 var flashMutex sync.Mutex
-var isFlashing bool
 
 func Flash(filePath string, resetPin int, boot0Pin int) error {
 
-	flashMutex.Lock()
-	if isFlashing {
-		flashMutex.Unlock()
+	if !flashMutex.TryLock() {
 		return fmt.Errorf("Already flashing")
 	}
-	isFlashing = true
-	flashMutex.Unlock()
-
-	defer func() {
-		flashMutex.Lock()
-		isFlashing = false
-		flashMutex.Unlock()
-	}()
+	defer flashMutex.Unlock()
 
 	// Set up pin control
 	if err := enterBootloader(resetPin, boot0Pin); err != nil {
@@ -47,8 +37,6 @@ func Flash(filePath string, resetPin int, boot0Pin int) error {
 	}
 
 	fmt.Println("STM32 flashed successfully")
-
-
 
 	return nil
 }

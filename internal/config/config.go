@@ -9,10 +9,14 @@ import (
 )
 
 type Config struct {
-	IS_ANALOG_DISCOVERY_MOCKED bool
 	PORT string
 	BOOT0_PIN int
 	RESET_PIN int
+	IS_MCU bool
+	TDI int
+	TMS int
+	TCK int
+	TDO int
 }
 
 func LoadConfig() (*Config, error) {
@@ -23,13 +27,6 @@ func LoadConfig() (*Config, error) {
 	}
 
 	config := &Config{}
-
-	IS_ANALOG_DISCOVERY_MOCKED, err :=  strconv.ParseBool(os.Getenv("IS_ANALOG_DISCOVERY_MOCKED"))
-	if err != nil {
-		return nil, fmt.Errorf("Error parsing IS_ANALOG_DISCOVERY_MOCKED: %w", err)
-	}
-	config.IS_ANALOG_DISCOVERY_MOCKED = IS_ANALOG_DISCOVERY_MOCKED
-
 	
 	PORT, err := strconv.Atoi(os.Getenv("PORT"))
 	if err != nil {
@@ -50,6 +47,36 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("Error parsing NRST_PIN: %w", err)
 	}
 	config.RESET_PIN = RESET_PIN
+
+	IS_MCU, err := strconv.ParseBool(os.Getenv("IS_MCU"))
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing IS_MCU: %w", err)
+	}
+	config.IS_MCU = IS_MCU
+
+	TDI, err := strconv.Atoi(os.Getenv("TDI"))
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing TDI: %w", err)
+	}
+	config.TDI = TDI
+
+	TMS, err := strconv.Atoi(os.Getenv("TMS"))
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing TMS: %w", err)
+	}
+	config.TMS = TMS
+
+	TCK, err := strconv.Atoi(os.Getenv("TCK"))
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing TCK: %w", err)
+	}
+	config.TCK = TCK
+
+	TDO, err := strconv.Atoi(os.Getenv("TDO"))
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing TDO: %w", err)
+	}
+	config.TDO = TDO
 
 	return config, nil
 }

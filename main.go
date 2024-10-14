@@ -4,6 +4,7 @@ import (
 	analogdiscovery "digitrans-lab-go/internal/analog-discovery"
 	"digitrans-lab-go/internal/camera"
 	"digitrans-lab-go/internal/config"
+	"digitrans-lab-go/internal/fpga"
 	stm32flash "digitrans-lab-go/internal/stm32-flash"
 	"encoding/json"
 	"fmt"
@@ -40,7 +41,7 @@ func main() {
 	device.SetPinMode(1, true)
 	device.SetPinMode(2, true)
 
-	http.HandleFunc("/firmware", handleFirmware(cfg.BOOT0_PIN, cfg.RESET_PIN))
+	http.HandleFunc("/firmware", handleFirmware(*cfg))
 	http.HandleFunc("/write-pin", handleWritePin(*device))
 	http.Handle("/stream", cam)
 
@@ -53,7 +54,7 @@ const (
 	uploadPath    = "./uploads"
 )
 
-func handleFirmware(boot0pin, resetpin int) func(http.ResponseWriter, *http.Request) {
+func handleFirmware(cfg config.Config) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -91,10 +92,19 @@ func handleFirmware(boot0pin, resetpin int) func(http.ResponseWriter, *http.Requ
 			return
 		}
 
-		if err := stm32flash.Flash(fp, resetpin, boot0pin); err != nil {
-			fmt.Println("Error flashing STM32:", err)
-			http.Error(w, "Error flashing STM32", http.StatusInternalServerError)
-			return
+		if cfg.IS_MCU {
+			fmt.Println("Flashing STM32")
+			err = stm32flash.Flash(fp, cfg.RESET_PIN, cfg.BOOT0_PIN);
+		} else {
+			fmt.Println("Flashing FPGA")
+			device := fpga.CreateFPGA(cfg.TDI, cfg.TDO, cfg.TCK, cfg.TMS)
+			err = device.Flash(fp)
+		}
+
+		if err != nil {
+			fmt.Println("Error flashing device:", err)
+				http.Error(w, "Error flashing device", http.StatusInternalServerError)
+				return
 		}
 
 		fmt.Fprintf(w, "Firmware flashed successfully")
