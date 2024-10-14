@@ -12,7 +12,6 @@ type Config struct {
 	PORT string
 	BOOT0_PIN int
 	RESET_PIN int
-	IS_MCU bool
 	TDI int
 	TMS int
 	TCK int
@@ -48,11 +47,6 @@ func LoadConfig() (*Config, error) {
 	}
 	config.RESET_PIN = RESET_PIN
 
-	IS_MCU, err := strconv.ParseBool(os.Getenv("IS_MCU"))
-	if err != nil {
-		return nil, fmt.Errorf("Error parsing IS_MCU: %w", err)
-	}
-	config.IS_MCU = IS_MCU
 
 	TDI, err := strconv.Atoi(os.Getenv("TDI"))
 	if err != nil {

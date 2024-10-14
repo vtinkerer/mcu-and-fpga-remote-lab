@@ -41,7 +41,8 @@ func main() {
 	device.SetPinMode(1, true)
 	device.SetPinMode(2, true)
 
-	http.HandleFunc("/firmware", handleFirmware(*cfg))
+	http.HandleFunc("/firmware/fpga", handleFirmware(*cfg, true))
+	http.HandleFunc("/firmware/mcu", handleFirmware(*cfg, false))
 	http.HandleFunc("/write-pin", handleWritePin(*device))
 	http.Handle("/stream", cam)
 
@@ -54,7 +55,7 @@ const (
 	uploadPath    = "./uploads"
 )
 
-func handleFirmware(cfg config.Config) func(http.ResponseWriter, *http.Request) {
+func handleFirmware(cfg config.Config, isFPGA bool) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -92,13 +93,13 @@ func handleFirmware(cfg config.Config) func(http.ResponseWriter, *http.Request) 
 			return
 		}
 
-		if cfg.IS_MCU {
-			fmt.Println("Flashing STM32")
-			err = stm32flash.Flash(fp, cfg.RESET_PIN, cfg.BOOT0_PIN);
-		} else {
+		if isFPGA {
 			fmt.Println("Flashing FPGA")
 			device := fpga.CreateFPGA(cfg.TDI, cfg.TDO, cfg.TCK, cfg.TMS)
 			err = device.Flash(fp)
+		} else {
+			fmt.Println("Flashing STM32")
+			err = stm32flash.Flash(fp, cfg.RESET_PIN, cfg.BOOT0_PIN);
 		}
 
 		if err != nil {
