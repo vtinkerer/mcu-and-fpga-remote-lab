@@ -41,6 +41,16 @@ var FDwfAnalogInChannelEnableSet func(deviceHandle int32, idxChannel int, isEnab
 var FDwfAnalogInChannelRangeSet func(deviceHandle int32, idxChannel int, volts float32)
 var FDwfAnalogInChannelOffsetSet func(deviceHandle int32, idxChannel int, voltsOffset float32)
 var FDwfAnalogInChannelAttenuationSet func(devicehandle int32, idxChannel int, xAttenuation float32)
+var FDwfAnalogInTriggerPositionSet func(deviceHandle int32, secPosition float32)
+var FDwfAnalogInTriggerAutoTimeoutSet func(deviceHandle int32, secTimeout float32)
+var FDwfAnalogInTriggerHoldOffSet func(deviceHandle int32, secOffset float32)
+var FDwfAnalogInTriggerTypeSet func(deviceHandle int32, trigType int)
+var FDwfAnalogInTriggerChannelSet func(deviceHandle int32, idxChannel int)
+var FDwfAnalogInTriggerConditionSet func(deviceHanlde int32, trigCond int)
+var FDwfAnalogInTriggerLevelSet func(deviceHandle int32, voltsLevel float32)
+var FDwfAnalogInTriggerHysteresisSet func(deviceHandle int32, voltsLevel float32)
+var FDwfAnalogInTriggerLengthConditionSet func(deviceHandle int32, trigLen int)
+var FDwfAnalogInTriggerLengthSet func(deviceHandle int32, trigLen float32)
 
 func initDL() {
 	fmt.Println("Initializing Analog Discovery dwf")
@@ -82,6 +92,16 @@ func initDL() {
 	purego.RegisterLibFunc(&FDwfAnalogInChannelRangeSet, dwf, "FDwfAnalogInChannelRangeSet")
 	purego.RegisterLibFunc(&FDwfAnalogInChannelOffsetSet, dwf, "FDwfAnalogInChannelOffsetSet")
 	purego.RegisterLibFunc(&FDwfAnalogInChannelAttenuationSet, dwf, "FDwfAnalogInChannelAttenuationSet")
+	purego.RegisterLibFunc(&FDwfAnalogInTriggerPositionSet, dwf, "FDwfAnalogInTriggerPositionSet")
+	purego.RegisterLibFunc(&FDwfAnalogInTriggerAutoTimeoutSet, dwf, "FDwfAnalogInTriggerAutoTimeoutSet")
+	purego.RegisterLibFunc(&FDwfAnalogInTriggerHoldOffSet, dwf, "FDwfAnalogInTriggerHoldOffSet")
+	purego.RegisterLibFunc(&FDwfAnalogInTriggerTypeSet, dwf, "FDwfAnalogInTriggerTypeSet")
+	purego.RegisterLibFunc(&FDwfAnalogInTriggerChannelSet, dwf, "FDwfAnalogInTriggerChannelSet")
+	purego.RegisterLibFunc(&FDwfAnalogInTriggerConditionSet, dwf, "FDwfAnalogInTriggerConditionSet")
+	purego.RegisterLibFunc(&FDwfAnalogInTriggerLevelSet, dwf, "FDwfAnalogInTriggerLevelSet")
+	purego.RegisterLibFunc(&FDwfAnalogInTriggerHysteresisSet, dwf, "FDwfAnalogInTriggerHysteresisSet")
+	purego.RegisterLibFunc(&FDwfAnalogInTriggerLengthConditionSet, dwf, "FDwfAnalogInTriggerLengthConditionSet")
+	purego.RegisterLibFunc(&FDwfAnalogInTriggerLengthSet, dwf, "FDwfAnalogInTriggerLengthSet")
 }
 
 type AnalogDiscoveryDevice struct {
@@ -249,6 +269,42 @@ func GetTrigSrcByName(trigSrc string) (int, error) {
 		return t, fmt.Errorf("error: %s", "no such trigger source!")
 	}
 	return t, nil
+}
+
+// get analog in trigger type by name
+func GetTrigTypeByName(trigType string) (int, error) {
+	var t int
+	switch trigType {
+	case "trigtypeEdge":
+		t = 0
+	case "trigtypePulse":
+		t = 1
+	case "trigtypeTransition":
+		t = 2
+	case "trigtypeWindow":
+		t = 3
+	default:
+		t = -1
+		return t, fmt.Errorf("error: %s", "no such trigger type!")
+	}
+	return t, nil
+}
+
+// get analog in trigger length by name
+func GetTrigLenByName(trigLen string) (int, error) {
+	var tl int
+	switch trigLen {
+	case "triglenLess":
+		tl = 0
+	case "triglenTimeout":
+		tl = 1
+	case "triglenMore":
+		tl = 2
+	default:
+		tl = -1
+		return tl, fmt.Errorf("error: %s", "no such trigger length!")
+	}
+	return tl, nil
 }
 
 // config analog out with state
@@ -533,6 +589,101 @@ func (ad *AnalogDiscoveryDevice) SetAnalogInChannelAttenuation(indexCh int, xAtt
 	return nil
 }
 
+// set trigger position of analog in
+func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerPosition(secPosition float32) error {
+	if secPosition < 0.0 {
+		return fmt.Errorf("trigger position is incorrect")
+	}
+	FDwfAnalogInTriggerPositionSet(ad.Handle, secPosition)
+	return nil
+}
+
+// set trigger auto timeout of analog in
+func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerAutoTimeout(secTimeout float32) error {
+	if secTimeout < 0.0 {
+		return fmt.Errorf("trigger auto timeout is incorrect")
+	}
+	FDwfAnalogInTriggerAutoTimeoutSet(ad.Handle, secTimeout)
+	return nil
+}
+
+// set trigger hold offset of analog in
+func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerHoldOffset(secHoldOff float32) error {
+	if secHoldOff < 0.0 {
+		return fmt.Errorf("trigger auto timeout is incorrect")
+	}
+	FDwfAnalogInTriggerHoldOffSet(ad.Handle, secHoldOff)
+	return nil
+}
+
+// set trigger type of analog in
+func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerType(trigType string) error {
+	var trig int
+	trig, _ = GetTrigTypeByName(trigType)
+	if trig == -1 {
+		return fmt.Errorf("trigger type is incorrect")
+	}
+	FDwfAnalogInTriggerTypeSet(ad.Handle, trig)
+	return nil
+}
+
+// set trigger channel of analog in
+func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerChannel(idxChannel int) {
+	FDwfAnalogInTriggerChannelSet(ad.Handle, idxChannel)
+}
+
+// func SetAnalogInTriggerFilter
+
+// set trigger condition of analog in
+func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerCondition(trigCond string) error {
+	var cond int
+	cond, _ = GetSamplingSlopeByName(trigCond)
+	if cond == -1 {
+		return fmt.Errorf("trigger condition is incorrect")
+	}
+	FDwfAnalogInTriggerConditionSet(ad.Handle, cond)
+	return nil
+}
+
+// set trigger hysteresis of analog in
+func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerHysteresis(volts float32) error {
+	if volts < -5.5 || volts > 5.5 {
+		return fmt.Errorf("trigger hysteresis is incorrect")
+	}
+	FDwfAnalogInTriggerHysteresisSet(ad.Handle, volts)
+	return nil
+}
+
+// set trigger level of analog in
+func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerLevel(volts float32) error {
+	if volts < -5.5 || volts > 5.5 {
+		return fmt.Errorf("trigger level is incorrect")
+	}
+	FDwfAnalogInTriggerLevelSet(ad.Handle, volts)
+	return nil
+}
+
+// set trigger length condition of analog in
+func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerLengthCondition(trigLen string) error {
+	var lengthCond int
+	lengthCond, _ = GetTrigLenByName(trigLen)
+	if lengthCond == -1 {
+		return fmt.Errorf("trigger length condition is incorrect")
+	}
+	FDwfAnalogInTriggerLengthConditionSet(ad.Handle, lengthCond)
+	return nil
+}
+
+// set trigger length of analog in
+func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerLength(secLength float32) error {
+	if secLength < 0.0 {
+		return fmt.Errorf("trigger length is incorrect")
+	}
+	FDwfAnalogInTriggerLengthSet(ad.Handle, secLength)
+	return nil
+}
+
+// close the device
 func (ad *AnalogDiscoveryDevice) Close() {
 	if ad.Handle != 0 {
 		FDwfDeviceClose(ad.Handle)
