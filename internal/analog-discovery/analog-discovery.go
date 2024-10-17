@@ -53,6 +53,9 @@ var FDwfAnalogInTriggerHysteresisSet func(deviceHandle int32, voltsLevel float32
 var FDwfAnalogInTriggerLengthConditionSet func(deviceHandle int32, trigLen int) int32
 var FDwfAnalogInTriggerLengthSet func(deviceHandle int32, trigLen float32) int32
 var FDwfAnalogOutNodeEnableGet func(deviceHandle int32, idxChannel int, analogNode int, isEnabled *int) int32
+var FDwfAnalogOutLimitationSet func(deviceHandle int32, idxChannel int, limitation float32) int32
+var FDwfAnalogOutModeSet func(deviceHandle int32, idxChannel int, mode int) int32
+var FDwfAnalogOutIdleSet func(deviceHandle int32, idxChannel int, idle int) int32
 
 func initDL() {
 	fmt.Println("Initializing Analog Discovery dwf")
@@ -106,6 +109,9 @@ func initDL() {
 	purego.RegisterLibFunc(&FDwfAnalogInTriggerLengthSet, dwf, "FDwfAnalogInTriggerLengthSet")
 	purego.RegisterLibFunc(&FDwfAnalogOutNodeEnableGet, dwf, "FDwfAnalogOutNodeEnableGet")
 	purego.RegisterLibFunc(&FDwfAnalogOutFunctionSet, dwf, "FDwfAnalogOutFunctionSet")
+	purego.RegisterLibFunc(&FDwfAnalogOutLimitationSet, dwf, "FDwfAnalogOutLimitationSet")
+	purego.RegisterLibFunc(&FDwfAnalogOutModeSet, dwf, "FDwfAnalogOutModeSet")
+	purego.RegisterLibFunc(&FDwfAnalogOutIdleSet, dwf, "FDwfAnalogOutIdleSet")
 }
 
 type AnalogDiscoveryDevice struct {
@@ -545,6 +551,56 @@ func (ad *AnalogDiscoveryDevice) SetAnalogOutPhase(indexCh int, nodeName string,
 	return nil
 }
 
+// set analog out limitation
+func (ad *AnalogDiscoveryDevice) SetAnalogOutLimitation(indexCh int, limit float32) error {
+	if limit < 0.0 {
+		return fmt.Errorf("analog out limitation is incorrect")
+	}
+	if FDwfAnalogOutLimitationSet(ad.Handle, indexCh, limit) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error setting analog output limitation: %w", err)
+		}
+	}
+	return nil
+}
+
+// set analog out mode of specified channel: voltage or current
+func (ad *AnalogDiscoveryDevice) SetAnalogOutMode(indexCh int, modeName string) error {
+	var mode int
+	switch modeName {
+	case "DwfAnalogOutModeVoltage":
+		mode = 0
+	case "DwfAnalogOutModeCurrent":
+		mode = 1
+	default:
+		mode = -1
+	}
+	if mode == -1 {
+		return fmt.Errorf("analog out mode is incorrect")
+	}
+	if FDwfAnalogOutModeSet(ad.Handle, indexCh, mode) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error setting analog output mode: %w", err)
+		}
+	}
+	return nil
+}
+
+// set analog out idle
+func (ad *AnalogDiscoveryDevice) SetAnalogOutIdle(indexCh int, nodeName string) error {
+	var node int
+	node, _ = GetAnalogOutNodeCarrier(nodeName)
+	if node == -1 {
+		return fmt.Errorf("analog out node is incorrect")
+	}
+	if FDwfAnalogOutIdleSet(ad.Handle, indexCh, node) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error setting analog output idle: %w", err)
+		}
+	}
+	return nil
+}
+
 // reconfig analog in - start
 func (ad *AnalogDiscoveryDevice) ReConfigAnalogInStart() {
 	FDwfAnalogInConfigure(ad.Handle, 1, 1)
@@ -841,6 +897,10 @@ func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerLength(secLength float32) err
 	}
 	return nil
 }
+
+/*func (ad *AnalogDiscoveryDevice)  error {
+
+}*/
 
 // close the connection to device
 func (ad *AnalogDiscoveryDevice) Close() {
