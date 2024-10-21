@@ -41,10 +41,10 @@ func main() {
 	device.SetPinMode(1, true)
 	device.SetPinMode(2, true)
 
-	http.HandleFunc("/firmware/fpga", handleFirmware(*cfg, true))
-	http.HandleFunc("/firmware/mcu", handleFirmware(*cfg, false))
-	http.HandleFunc("/write-pin", handleWritePin(*device))
-	http.Handle("/stream", cam)
+	http.HandleFunc("/api/firmware/fpga", handleFirmware(*cfg, true))
+	http.HandleFunc("/api/firmware/mcu", handleFirmware(*cfg, false))
+	http.HandleFunc("/api/write-pin", handleWritePin(*device))
+	http.Handle("/api/stream", cam)
 
 	log.Printf("Server started on http://localhost:%s", cfg.PORT)
 	log.Fatal(http.ListenAndServe(":"+cfg.PORT, nil))
