@@ -49,8 +49,7 @@ func main() {
 	r.POST("/api/write-pin", handleWritePin(*device))
 	r.Any("/api/stream", cam.ServeHTTP)
 
-	log.Printf("Server started on http://localhost:%s", cfg.PORT)
-	log.Fatal(http.ListenAndServe(":"+cfg.PORT, nil))
+	log.Fatal(r.Run(":"+cfg.PORT))
 }
 
 const (
