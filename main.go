@@ -8,14 +8,17 @@ import (
 	stm32flash "digitrans-lab-go/internal/stm32-flash"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
+
+	r := gin.Default()
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Error loading config:", err)
@@ -41,10 +44,10 @@ func main() {
 	device.SetPinMode(1, true)
 	device.SetPinMode(2, true)
 
-	http.HandleFunc("/api/firmware/fpga", handleFirmware(*cfg, true))
-	http.HandleFunc("/api/firmware/mcu", handleFirmware(*cfg, false))
-	http.HandleFunc("/api/write-pin", handleWritePin(*device))
-	http.Handle("/api/stream", cam)
+	r.POST("/api/firmware/fpga", handleFirmware(*cfg, true))
+	r.POST("/api/firmware/mcu", handleFirmware(*cfg, false))
+	r.POST("/api/write-pin", handleWritePin(*device))
+	r.Any("/api/stream", cam.ServeHTTP)
 
 	log.Printf("Server started on http://localhost:%s", cfg.PORT)
 	log.Fatal(http.ListenAndServe(":"+cfg.PORT, nil))
@@ -55,43 +58,30 @@ const (
 	uploadPath    = "./uploads"
 )
 
-func handleFirmware(cfg config.Config, isFPGA bool) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
+func handleFirmware(cfg config.Config, isFPGA bool) func(c *gin.Context) {
+	return func(c *gin.Context) {
 		// Limit the size of the request body
-		r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
-		if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-			http.Error(w, "File too large", http.StatusBadRequest)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
+
+		if err := c.Request.ParseMultipartForm(maxUploadSize); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "File too large"})
 			return
 		}
 
 		// Get the file from the request
-		file, header, err := r.FormFile("file")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		file, err := c.FormFile("file"); if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		defer file.Close()
+				
+		postfix := "MCU"
+		if isFPGA {
+			postfix = "FPGA"
+		}
+		fp := filepath.Join(uploadPath, postfix)
 
-
-		fp := filepath.Join(uploadPath, header.Filename)
 		// Create the file on the server
-		dst, err := os.Create(fp)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer dst.Close()
-
-		// Copy the uploaded file to the created file on the server
-		if _, err := io.Copy(dst, file); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+		c.SaveUploadedFile(file, fp)
 
 		if isFPGA {
 			fmt.Println("Flashing FPGA")
@@ -104,11 +94,10 @@ func handleFirmware(cfg config.Config, isFPGA bool) func(http.ResponseWriter, *h
 
 		if err != nil {
 			fmt.Println("Error flashing device:", err)
-				http.Error(w, "Error flashing device", http.StatusInternalServerError)
-				return
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error flashing device"})
+			return
 		}
-
-		fmt.Fprintf(w, "Firmware flashed successfully")
+		c.JSON(http.StatusOK, gin.H{"message": "Firmware flashed successfully"})
 	}
 }
 
@@ -125,32 +114,27 @@ func isPinAllowed(pin int) bool {
 	}
 	return false
 }
-func handleWritePin(device analogdiscovery.AnalogDiscoveryDevice) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
+func handleWritePin(device analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
+	return func(c *gin.Context) {
 		var pinReq WritePinRequest
-		decoder := json.NewDecoder(r.Body)
+		decoder := json.NewDecoder(c.Request.Body)
 		if err := decoder.Decode(&pinReq); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
 
 		if !isPinAllowed(pinReq.Pin) {
-			http.Error(w, fmt.Sprintf("Invalid pin number, only the following are allowed: ", allowedPins) , http.StatusBadRequest)
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid pin, only %v are allowed", allowedPins)})
 			return
 		}
 
 		if (pinReq.State != 0 && pinReq.State != 1) {
-			http.Error(w, "Invalid state, only 0 or 1 are allowed", http.StatusBadRequest)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state, only 0 or 1 are allowed"})
 			return
 		}
 
 		device.SetPinState(pinReq.Pin, pinReq.State == 1)
 
-		w.WriteHeader(http.StatusOK)
+		c.JSON(http.StatusOK, gin.H{"message": "Pin state set successfully"})
 	}
 }

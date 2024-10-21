@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/blackjack/webcam"
+	"github.com/gin-gonic/gin"
 )
 
 type WebcamServer struct {
@@ -115,13 +116,13 @@ func (ws *WebcamServer) captureFrames() {
 	}
 }
 
-func (ws *WebcamServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+func (ws *WebcamServer) ServeHTTP(c *gin.Context) {
+	c.Header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
+	c.Header("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 
-	if r.Method == "OPTIONS" {
+	if c.Request.Method == "OPTIONS" {
 		return
 	}
 
@@ -137,6 +138,7 @@ func (ws *WebcamServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		close(clientChan)
 	}()
 
+	w := c.Writer
 	for {
 		select {
 		case frameData := <-clientChan:
@@ -144,7 +146,7 @@ func (ws *WebcamServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Write(frameData)
 			w.Write([]byte("\r\n"))
 			w.(http.Flusher).Flush()
-		case <-r.Context().Done():
+		case <-c.Request.Context().Done():
 			return
 		}
 	}
