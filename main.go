@@ -46,7 +46,7 @@ func main() {
 
 	r.POST("/api/firmware/fpga", handleFirmware(*cfg, true))
 	r.POST("/api/firmware/mcu", handleFirmware(*cfg, false))
-	r.POST("/api/write-pin", handleWritePin(*device))
+	r.POST("/api/write-pin", handleWritePin(device))
 	r.Any("/api/stream", cam.ServeHTTP)
 
 	log.Fatal(r.Run(":"+cfg.PORT))
@@ -113,7 +113,7 @@ func isPinAllowed(pin int) bool {
 	}
 	return false
 }
-func handleWritePin(device analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
+func handleWritePin(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var pinReq WritePinRequest
 		decoder := json.NewDecoder(c.Request.Body)
