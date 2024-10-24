@@ -3,6 +3,7 @@ package analogdiscovery
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/ebitengine/purego"
@@ -116,6 +117,7 @@ func initDL() {
 
 type AnalogDiscoveryDevice struct {
 	Handle int32
+	mu_gpio sync.Mutex
 }
 
 // get function by name
@@ -913,11 +915,15 @@ func (ad *AnalogDiscoveryDevice) Close() {
 func (ad *AnalogDiscoveryDevice) SetPinMode(pin int, mode bool) error {
 	var mask uint16
 
+	ad.mu_gpio.Lock()
+	defer ad.mu_gpio.Unlock()
+
 	if FDwfDigitalIOOutputEnableGet(ad.Handle, &mask) == 0 {
 		if err := checkError(); err != nil {
 			return fmt.Errorf("error getting digital IO output enable: %w", err)
 		}
 	}
+
 
 	if mode {
 		mask |= 1 << uint(pin)
@@ -936,6 +942,9 @@ func (ad *AnalogDiscoveryDevice) SetPinMode(pin int, mode bool) error {
 
 func (ad *AnalogDiscoveryDevice) SetPinState(pin int, value bool) error {
 	var mask uint16
+
+	ad.mu_gpio.Lock()
+	defer ad.mu_gpio.Unlock()
 
 	if FDwfDigitalIOOutputGet(ad.Handle, &mask) == 0 {
 		if err := checkError(); err != nil {
