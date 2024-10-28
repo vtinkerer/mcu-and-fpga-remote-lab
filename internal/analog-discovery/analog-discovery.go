@@ -56,6 +56,13 @@ var FDwfAnalogOutNodeEnableGet func(deviceHandle int32, idxChannel int, analogNo
 var FDwfAnalogOutLimitationSet func(deviceHandle int32, idxChannel int, limitation float32) int32
 var FDwfAnalogOutModeSet func(deviceHandle int32, idxChannel int, mode int) int32
 var FDwfAnalogOutIdleSet func(deviceHandle int32, idxChannel int, idle int) int32
+var FDwfAnalogOutTriggerSourceSet func(deviceHandle int32, idxChannel int, trigSrc int) int32
+var FDwfAnalogOutTriggerSlopeSet func(deviceHandle int32, idxChannel int, trigSlope int) int32
+var FDwfAnalogOutRunSet func(deviceHandle int32, idxChannel int, secTime float32) int32
+var FDwfAnalogOutWaitSet func(deviceHandle int32, idxChannel int, secWait float32) int32
+var FDwfAnalogOutRepeatSet func(deviceHandle int32, idxChannel int, repeatTimes int) int32
+var FDwfAnalogOutRepeatTriggerSet func(deviceHandle int32, idxChannel int, repeatTrigger int) int32
+var FDwfAnalogOutMasterSet func(deviceHandle int32, idxChanel int, idxMaster int) int32
 
 func initDL() {
 	fmt.Println("Initializing Analog Discovery dwf")
@@ -112,6 +119,13 @@ func initDL() {
 	purego.RegisterLibFunc(&FDwfAnalogOutLimitationSet, dwf, "FDwfAnalogOutLimitationSet")
 	purego.RegisterLibFunc(&FDwfAnalogOutModeSet, dwf, "FDwfAnalogOutModeSet")
 	purego.RegisterLibFunc(&FDwfAnalogOutIdleSet, dwf, "FDwfAnalogOutIdleSet")
+	purego.RegisterLibFunc(&FDwfAnalogOutTriggerSourceSet, dwf, "FDwfAnalogOutTriggerSourceSet")
+	purego.RegisterLibFunc(&FDwfAnalogOutTriggerSlopeSet, dwf, "FDwfAnalogOutTriggerSlopeSet")
+	purego.RegisterLibFunc(&FDwfAnalogOutRunSet, dwf, "FDwfAnalogOutRunSet")
+	purego.RegisterLibFunc(&FDwfAnalogOutWaitSet, dwf, "FDwfAnalogOutWaitSet")
+	purego.RegisterLibFunc(&FDwfAnalogOutRepeatSet, dwf, "FDwfAnalogOutRepeatSet")
+	purego.RegisterLibFunc(&FDwfAnalogOutRepeatTriggerSet, dwf, "FDwfAnalogOutRepeatTriggerSet")
+	purego.RegisterLibFunc(&FDwfAnalogOutMasterSet, dwf, "FDwfAnalogOutMasterSet")
 }
 
 type AnalogDiscoveryDevice struct {
@@ -162,7 +176,7 @@ func GetFuncNumByName(name string) (int16, error) {
 }
 
 // get id of state
-func GetInstrumentState(name string) (int, error) {
+func GetInstrumentStateByName(name string) (int, error) {
 	var state int
 	switch name {
 	case "stop":
@@ -179,7 +193,7 @@ func GetInstrumentState(name string) (int, error) {
 }
 
 // get analog out node carrier by name
-func GetAnalogOutNodeCarrier(name string) (int, error) {
+func GetAnalogOutNodeCarrierByName(name string) (int, error) {
 	var a int
 
 	switch name {
@@ -320,7 +334,7 @@ func GetTrigLenByName(trigLen string) (int, error) {
 // config analog out with state
 func (ad *AnalogDiscoveryDevice) ConfigAnalogOut(idxChannel int, fStart string) error {
 	var startId int
-	startId, _ = GetInstrumentState(fStart)
+	startId, _ = GetInstrumentStateByName(fStart)
 	if startId == -1 {
 		return fmt.Errorf("no such instrument state")
 	}
@@ -360,6 +374,7 @@ func (ad *AnalogDiscoveryDevice) GenerateWaveform(idxChannel int, analogNode str
 	return nil
 }
 
+// check if there is error
 func checkError() error {
 	errMsg := make([]byte, 512)
 	FDwfGetLastErrorMsg(&errMsg[0])
@@ -371,6 +386,7 @@ func checkError() error {
 	return nil
 }
 
+// connect to the Analog Discovery device
 func CreateDevice() (*AnalogDiscoveryDevice, error) {
 	initDL()
 
@@ -412,10 +428,20 @@ func CreateDevice() (*AnalogDiscoveryDevice, error) {
 	return &AnalogDiscoveryDevice{Handle: deviceHandle}, nil
 }
 
+// close the connection to device
+func (ad *AnalogDiscoveryDevice) Close() {
+	if ad.Handle != 0 {
+		FDwfDeviceClose(ad.Handle)
+	}
+	ad.Handle = 0
+}
+
+// ----- ANALOG OUT (WAVEFORM GENERATOR) -----
+
 // enable / disable specified analog out channel
 func (ad *AnalogDiscoveryDevice) EnableAnalogOutChannel(indexCh int, nodeName string, isEnabled bool) error {
 	var enabled *int
-	a, _ := GetAnalogOutNodeCarrier(nodeName)
+	a, _ := GetAnalogOutNodeCarrierByName(nodeName)
 	if a == -1 {
 		return fmt.Errorf("no such analog out node")
 	}
@@ -435,7 +461,7 @@ func (ad *AnalogDiscoveryDevice) EnableAnalogOutChannel(indexCh int, nodeName st
 // set function and node node of analog out
 func (ad *AnalogDiscoveryDevice) SetAnalogOutNodeFunction(indexCh int, nodeName string, funcName string) error {
 	f, _ := GetFuncNumByName(funcName)
-	a, _ := GetAnalogOutNodeCarrier(nodeName)
+	a, _ := GetAnalogOutNodeCarrierByName(nodeName)
 	if a == -1 || f == -1 {
 		return fmt.Errorf("no such analog out node or function")
 	}
@@ -479,7 +505,7 @@ func (ad *AnalogDiscoveryDevice) GetInputChannelsNum() (int, error) {
 // set frequency of analog out
 func (ad *AnalogDiscoveryDevice) SetAnalogOutFrequency(indexCh int, nodeName string, frequencyValue float32) error {
 	var a int
-	a, _ = GetAnalogOutNodeCarrier(nodeName)
+	a, _ = GetAnalogOutNodeCarrierByName(nodeName)
 	if a == -1 {
 		return fmt.Errorf("analog out node is incorrect")
 	}
@@ -494,7 +520,7 @@ func (ad *AnalogDiscoveryDevice) SetAnalogOutFrequency(indexCh int, nodeName str
 // set amplitude of analog out
 func (ad *AnalogDiscoveryDevice) SetAnalogOutAmplitude(indexCh int, nodeName string, amplitudeValue float32) error {
 	var a int
-	a, _ = GetAnalogOutNodeCarrier(nodeName)
+	a, _ = GetAnalogOutNodeCarrierByName(nodeName)
 	if a == -1 {
 		return fmt.Errorf("analog out node is incorrect")
 	}
@@ -509,7 +535,7 @@ func (ad *AnalogDiscoveryDevice) SetAnalogOutAmplitude(indexCh int, nodeName str
 // set offset of analog out
 func (ad *AnalogDiscoveryDevice) SetAnalogOutOffset(indexCh int, nodeName string, offset float32) error {
 	var a int
-	a, _ = GetAnalogOutNodeCarrier(nodeName)
+	a, _ = GetAnalogOutNodeCarrierByName(nodeName)
 	if a == -1 {
 		return fmt.Errorf("analog out node is incorrect")
 	}
@@ -524,7 +550,7 @@ func (ad *AnalogDiscoveryDevice) SetAnalogOutOffset(indexCh int, nodeName string
 // set symmetry of analog out
 func (ad *AnalogDiscoveryDevice) SetAnalogOutSymmetry(indexCh int, nodeName string, percSymmetry float32) error {
 	var a int
-	a, _ = GetAnalogOutNodeCarrier(nodeName)
+	a, _ = GetAnalogOutNodeCarrierByName(nodeName)
 	if a == -1 {
 		return fmt.Errorf("analog out node is incorrect")
 	}
@@ -539,7 +565,7 @@ func (ad *AnalogDiscoveryDevice) SetAnalogOutSymmetry(indexCh int, nodeName stri
 // set phase of analog out
 func (ad *AnalogDiscoveryDevice) SetAnalogOutPhase(indexCh int, nodeName string, degreePhase float32) error {
 	var a int
-	a, _ = GetAnalogOutNodeCarrier(nodeName)
+	a, _ = GetAnalogOutNodeCarrierByName(nodeName)
 	if a == -1 {
 		return fmt.Errorf("analog out node is incorrect")
 	}
@@ -589,7 +615,7 @@ func (ad *AnalogDiscoveryDevice) SetAnalogOutMode(indexCh int, modeName string) 
 // set analog out idle
 func (ad *AnalogDiscoveryDevice) SetAnalogOutIdle(indexCh int, nodeName string) error {
 	var node int
-	node, _ = GetAnalogOutNodeCarrier(nodeName)
+	node, _ = GetAnalogOutNodeCarrierByName(nodeName)
 	if node == -1 {
 		return fmt.Errorf("analog out node is incorrect")
 	}
@@ -600,6 +626,106 @@ func (ad *AnalogDiscoveryDevice) SetAnalogOutIdle(indexCh int, nodeName string) 
 	}
 	return nil
 }
+
+// set analog out trigger source
+func (ad *AnalogDiscoveryDevice) SetAnalogOutTriggerSource(indexCh int, trigSrc string) error {
+	var trig int
+	trig, _ = GetTrigSrcByName(trigSrc)
+	if trig == -1 {
+		return fmt.Errorf("analog out trigger source is incorrect")
+	}
+	if FDwfAnalogOutTriggerSourceSet(ad.Handle, indexCh, trig) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error setting analog output trigger source: %w", err)
+		}
+	}
+	return nil
+}
+
+// set analog out trigger slope
+func (ad *AnalogDiscoveryDevice) SetAnalogOutTriggerSlope(indexCh int, slope string) error {
+	var trigSlope int
+	trigSlope, _ = GetSamplingSlopeByName(slope)
+	if trigSlope == -1 {
+		return fmt.Errorf("analog out trigger slope is incorrect")
+	}
+	if FDwfAnalogOutTriggerSlopeSet(ad.Handle, indexCh, trigSlope) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error setting analog output trigger slope: %w", err)
+		}
+	}
+	return nil
+}
+
+// set analog out run
+func (ad *AnalogDiscoveryDevice) SetAnalogOutRun(indexCh int, secRun float32) error {
+	if secRun <= 0.0 || secRun > 60.0 {
+		return fmt.Errorf("analog out run is incorrect")
+	}
+	if FDwfAnalogOutRunSet(ad.Handle, indexCh, secRun) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error setting analog output run: %w", err)
+		}
+	}
+	return nil
+}
+
+// set analog out wait
+func (ad *AnalogDiscoveryDevice) SetAnalogOutWait(indexCh int, secWait float32) error {
+	if secWait <= 0.0 || secWait > 60.0 {
+		return fmt.Errorf("analog out wait is incorrect")
+	}
+	if FDwfAnalogOutWaitSet(ad.Handle, indexCh, secWait) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error setting analog output wait: %w", err)
+		}
+	}
+	return nil
+}
+
+// set analog out repeat
+func (ad *AnalogDiscoveryDevice) SetAnalogOutRepeat(indexCh int, repeatTimes int) error {
+	if repeatTimes < 0 {
+		return fmt.Errorf("analog out repeat is incorrect")
+	}
+	if FDwfAnalogOutRepeatSet(ad.Handle, indexCh, repeatTimes) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error setting analog output repeat: %w", err)
+		}
+	}
+	return nil
+}
+
+// set analog out repeat trigger
+func (ad *AnalogDiscoveryDevice) SetAnalogOutRepeatTrigger(indexCh int, repeatTrigger bool) error {
+	var isRepeat int
+	if repeatTrigger {
+		isRepeat = 1
+	} else {
+		isRepeat = 0
+	}
+	if FDwfAnalogOutRepeatTriggerSet(ad.Handle, indexCh, isRepeat) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error setting analog output repeat trigger: %w", err)
+		}
+	}
+	return nil
+}
+
+// set analog out master
+func (ad *AnalogDiscoveryDevice) SetAnalogOutMaster(indexCh int, indexMstr int) error {
+	if indexMstr < 0 {
+		return fmt.Errorf("analog out master index is incorrect")
+	}
+	if FDwfAnalogOutMasterSet(ad.Handle, indexCh, indexMstr) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error setting analog output master: %w", err)
+		}
+	}
+	return nil
+}
+
+// ----- ANALOG IN (OSCILLOSCOPE) -----
 
 // reconfig analog in - start
 func (ad *AnalogDiscoveryDevice) ReConfigAnalogInStart() {
@@ -898,17 +1024,7 @@ func (ad *AnalogDiscoveryDevice) SetAnalogInTriggerLength(secLength float32) err
 	return nil
 }
 
-/*func (ad *AnalogDiscoveryDevice)  error {
-
-}*/
-
-// close the connection to device
-func (ad *AnalogDiscoveryDevice) Close() {
-	if ad.Handle != 0 {
-		FDwfDeviceClose(ad.Handle)
-	}
-	ad.Handle = 0
-}
+// ----- DIGITAL IO -----
 
 func (ad *AnalogDiscoveryDevice) SetPinMode(pin int, mode bool) error {
 	var mask uint16
