@@ -15,6 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var outputPins = []int{0, 1, 2, 3}
+
 func main() {
 
 	r := gin.Default()
@@ -40,13 +42,13 @@ func main() {
 		log.Fatalf("Error creating Analog Discovery device: %v", err)
 	}
 
-	device.SetPinMode(0, true)
-	device.SetPinMode(1, true)
-	device.SetPinMode(2, true)
+	for _, outputPin := range outputPins {
+		device.SetPinMode(outputPin, true)
+	}
 
 	r.POST("/api/firmware/fpga", handleFirmware(*cfg, true))
 	r.POST("/api/firmware/mcu", handleFirmware(*cfg, false))
-	r.POST("/api/write-pin", handleWritePin(*device))
+	r.POST("/api/write-pin", handleWritePin(device))
 	r.Any("/api/stream", cam.ServeHTTP)
 
 	log.Fatal(r.Run(":"+cfg.PORT))
@@ -104,16 +106,15 @@ type WritePinRequest struct {
 	Pin int `json:"pin"`
 	State int `json:"state"`
 }
-var allowedPins = []int{0, 1, 2}
 func isPinAllowed(pin int) bool {
-	for _, allowedPin := range allowedPins {
+	for _, allowedPin := range outputPins {
 		if pin == allowedPin {
 			return true
 		}
 	}
 	return false
 }
-func handleWritePin(device analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
+func handleWritePin(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var pinReq WritePinRequest
 		decoder := json.NewDecoder(c.Request.Body)
@@ -123,7 +124,7 @@ func handleWritePin(device analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Co
 		}
 
 		if !isPinAllowed(pinReq.Pin) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid pin, only %v are allowed", allowedPins)})
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid pin, only %v are allowed", outputPins)})
 			return
 		}
 
