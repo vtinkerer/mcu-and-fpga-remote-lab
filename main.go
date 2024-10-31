@@ -84,6 +84,8 @@ func handleFirmware(cfg config.Config, isFPGA bool) func(c *gin.Context) {
 		// Create the file on the server
 		c.SaveUploadedFile(file, fp)
 
+		fmt.Println("Firmware file uploaded:", file.Filename, " to ", fp, " for ", postfix)
+
 		if isFPGA {
 			fmt.Println("Flashing FPGA")
 			device := fpga.CreateFPGA(cfg.TDI, cfg.TDO, cfg.TCK, cfg.TMS)
@@ -95,7 +97,7 @@ func handleFirmware(cfg config.Config, isFPGA bool) func(c *gin.Context) {
 
 		if err != nil {
 			fmt.Println("Error flashing device:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error flashing device"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Error flashing device"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "Firmware flashed successfully"})

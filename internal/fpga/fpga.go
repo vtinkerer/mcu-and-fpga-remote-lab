@@ -29,9 +29,14 @@ var flashMutex sync.Mutex
 
 func (fpga *FPGA) Flash(svfFilePath string) error {
 	if !flashMutex.TryLock() {
+		fmt.Println("Failed to lock flash mutex")
 		return fmt.Errorf("Already flashing")
 	}
-	defer flashMutex.Unlock()
+	fmt.Println("Locked flash mutex")
+	defer func() {
+		fmt.Println("Unlocking flash mutex")
+		flashMutex.Unlock()
+	}()
 
 	return fpga.runUrjtag(svfFilePath)
 }
@@ -100,6 +105,7 @@ func (fpga *FPGA) runUrjtag(svfFilePath string) error {
 
 	result := <-resultChan
 
+	cmd.Process.Kill()
 	cmd.Wait()
 
 	return result
