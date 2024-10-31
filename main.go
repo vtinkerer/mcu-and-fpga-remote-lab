@@ -97,7 +97,7 @@ func handleFirmware(cfg config.Config, isFPGA bool) func(c *gin.Context) {
 
 		if err != nil {
 			fmt.Println("Error flashing device:", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Error flashing device"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "Firmware flashed successfully"})
