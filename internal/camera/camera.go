@@ -69,7 +69,7 @@ func (ws *WebcamServer) StartStreaming() error {
 	return nil
 }
 
-func (ws *WebcamServer) StopStreaming() {
+func (ws *WebcamServer) stopStreaming() {
 	ws.streamingLock.Lock()
 	defer ws.streamingLock.Unlock()
 
@@ -82,7 +82,7 @@ func (ws *WebcamServer) StopStreaming() {
 }
 
 func (ws *WebcamServer) Close() {
-	ws.StopStreaming()
+	ws.stopStreaming()
 	ws.cam.Close()
 }
 
@@ -127,13 +127,18 @@ func (ws *WebcamServer) ServeHTTP(c *gin.Context) {
 	}
 
 	clientChan := make(chan []byte, 10)
+	
 	ws.clientsMutex.Lock()
 	ws.clients[clientChan] = true
+	ws.StartStreaming()
 	ws.clientsMutex.Unlock()
 
 	defer func() {
 		ws.clientsMutex.Lock()
 		delete(ws.clients, clientChan)
+		if len(ws.clients) == 0 {
+			ws.stopStreaming()
+		}
 		ws.clientsMutex.Unlock()
 		close(clientChan)
 	}()

@@ -32,11 +32,6 @@ func main() {
 	}
 	defer cam.Close()
 
-	err = cam.StartStreaming()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	device, err := analogdiscovery.CreateDevice()
 	if err != nil {
 		log.Fatalf("Error creating Analog Discovery device: %v", err)
