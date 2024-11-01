@@ -6,6 +6,7 @@ import (
 	"digitrans-lab-go/internal/config"
 	"digitrans-lab-go/internal/fpga"
 	stm32flash "digitrans-lab-go/internal/stm32-flash"
+	"digitrans-lab-go/internal/uart"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -40,6 +41,14 @@ func main() {
 	for _, outputPin := range outputPins {
 		device.SetPinMode(outputPin, true)
 	}
+
+	u ,err := uart.NewUART()
+	if err != nil {
+		log.Fatalf("Error creating UART device: %v", err)
+	}
+
+	u.StartListening()
+
 
 	r.POST("/api/firmware/fpga", handleFirmware(*cfg, true))
 	r.POST("/api/firmware/mcu", handleFirmware(*cfg, false))
