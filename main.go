@@ -51,7 +51,7 @@ func main() {
 	r.POST("/api/wavegen/write-amplitude", handleWavegenAmplitudeSet(device))
 	r.POST("/api/wavegen/write-frequency", handleWavegenFrequencySet(device))
 	//r.POST("/api/wavegen/duty-cycle")
-	r.POST("/api/wavegen/write-config")
+	r.POST("/api/wavegen/write-config", handleWavegenRun(device))
 
 	r.Any("/api/stream", cam.ServeHTTP)
 
@@ -130,13 +130,13 @@ type WriteWavegenFrequencyRequest struct {
 }
 
 type WriteWavegenChannelEnableRequest struct {
-	Channel   int  `json:"channel"`
-	IsEnabled bool `json:"isEnabled"`
+	Channel   int `json:"channel"`
+	IsEnabled int `json:"isEnabled"`
 }
 
 type WriteWavegenRunRequest struct {
-	Channel int  `json:"channel"`
-	IsStart bool `json:"isStart"`
+	Channel int `json:"channel"`
+	IsStart int `json:"isStart"`
 }
 
 func isPinAllowed(pin int) bool {
@@ -238,7 +238,7 @@ func handleWavegenFunctionSet(device *analogdiscovery.AnalogDiscoveryDevice) fun
 			return
 		}
 
-		device.SetAnalogOutFunction(wavegenFunction.Channel, wavegenFunction.Function)
+		device.SetAnalogOutNodeFunction(wavegenFunction.Channel, "AnalogOutNodeCarrier", wavegenFunction.Function)
 
 		c.JSON(http.StatusOK, gin.H{"message": "Analog out function set successfully"})
 
