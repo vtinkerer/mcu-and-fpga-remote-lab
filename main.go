@@ -16,6 +16,8 @@ import (
 )
 
 var outputPins = []int{0, 1, 2, 3}
+var outputChannels = []int{0, 1}
+var wavegenFunctions = []string{"sine", "rampup", "triangle", "pulse"}
 
 func main() {
 
@@ -44,9 +46,16 @@ func main() {
 	r.POST("/api/firmware/fpga", handleFirmware(*cfg, true))
 	r.POST("/api/firmware/mcu", handleFirmware(*cfg, false))
 	r.POST("/api/write-pin", handleWritePin(device))
+	r.POST("/api/wavegen/write-channel", handleWavegenEnableChannel(device))
+	r.POST("/api/wavegen/write-function", handleWavegenFunctionSet(device))
+	r.POST("/api/wavegen/write-amplitude", handleWavegenAmplitudeSet(device))
+	r.POST("/api/wavegen/write-frequency", handleWavegenFrequencySet(device))
+	//r.POST("/api/wavegen/duty-cycle")
+	r.POST("/api/wavegen/write-config")
+
 	r.Any("/api/stream", cam.ServeHTTP)
 
-	log.Fatal(r.Run(":"+cfg.PORT))
+	log.Fatal(r.Run(":" + cfg.PORT))
 }
 
 const (
@@ -65,11 +74,12 @@ func handleFirmware(cfg config.Config, isFPGA bool) func(c *gin.Context) {
 		}
 
 		// Get the file from the request
-		file, err := c.FormFile("file"); if err != nil {
+		file, err := c.FormFile("file")
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-				
+
 		postfix := "MCU"
 		if isFPGA {
 			postfix = "FPGA"
@@ -87,7 +97,7 @@ func handleFirmware(cfg config.Config, isFPGA bool) func(c *gin.Context) {
 			err = device.Flash(fp)
 		} else {
 			fmt.Println("Flashing STM32")
-			err = stm32flash.Flash(fp, cfg.RESET_PIN, cfg.BOOT0_PIN);
+			err = stm32flash.Flash(fp, cfg.RESET_PIN, cfg.BOOT0_PIN)
 		}
 
 		if err != nil {
@@ -100,9 +110,35 @@ func handleFirmware(cfg config.Config, isFPGA bool) func(c *gin.Context) {
 }
 
 type WritePinRequest struct {
-	Pin int `json:"pin"`
+	Pin   int `json:"pin"`
 	State int `json:"state"`
 }
+
+type WriteWavegenAmplitudeRequest struct {
+	Channel   int     `json:"channel"`
+	Amplitude float32 `json:"amplitude"`
+}
+
+type WriteWavegenFunctionRequest struct {
+	Channel  int    `json:"channel"`
+	Function string `json:"function"`
+}
+
+type WriteWavegenFrequencyRequest struct {
+	Channel   int     `json:"channel"`
+	Frequency float32 `json:"frequency"`
+}
+
+type WriteWavegenChannelEnableRequest struct {
+	Channel   int  `json:"channel"`
+	IsEnabled bool `json:"isEnabled"`
+}
+
+type WriteWavegenRunRequest struct {
+	Channel int  `json:"channel"`
+	IsStart bool `json:"isStart"`
+}
+
 func isPinAllowed(pin int) bool {
 	for _, allowedPin := range outputPins {
 		if pin == allowedPin {
@@ -111,6 +147,25 @@ func isPinAllowed(pin int) bool {
 	}
 	return false
 }
+
+func isChannelAllowed(channel int) bool {
+	for _, allowedChannel := range outputChannels {
+		if channel == allowedChannel {
+			return true
+		}
+	}
+	return false
+}
+
+func isFunctionAllowed(function string) bool {
+	for _, allowedFunction := range wavegenFunctions {
+		if function == allowedFunction {
+			return true
+		}
+	}
+	return false
+}
+
 func handleWritePin(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var pinReq WritePinRequest
@@ -125,7 +180,7 @@ func handleWritePin(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.C
 			return
 		}
 
-		if (pinReq.State != 0 && pinReq.State != 1) {
+		if pinReq.State != 0 && pinReq.State != 1 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state, only 0 or 1 are allowed"})
 			return
 		}
@@ -133,5 +188,130 @@ func handleWritePin(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.C
 		device.SetPinState(pinReq.Pin, pinReq.State == 1)
 
 		c.JSON(http.StatusOK, gin.H{"message": "Pin state set successfully"})
+	}
+}
+
+func handleWavegenAmplitudeSet(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		var wavegenAmplitude WriteWavegenAmplitudeRequest
+		decoder := json.NewDecoder(c.Request.Body)
+
+		if err := decoder.Decode(&wavegenAmplitude); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		if !isChannelAllowed(wavegenAmplitude.Channel) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid channel, only %v are allowed", outputChannels)})
+			return
+		}
+
+		if wavegenAmplitude.Amplitude < -5.0 || wavegenAmplitude.Amplitude > 5.0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid amplitude, only values between -5.5 V and 5.5 are allowed"})
+			return
+		}
+
+		device.SetAnalogOutAmplitude(wavegenAmplitude.Channel, "AnalogOutNodeCarrier", wavegenAmplitude.Amplitude)
+
+		c.JSON(http.StatusOK, gin.H{"message": "Analog out set successfully"})
+
+	}
+}
+
+func handleWavegenFunctionSet(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		var wavegenFunction WriteWavegenFunctionRequest
+		decoder := json.NewDecoder(c.Request.Body)
+
+		if err := decoder.Decode(&wavegenFunction); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		if !isChannelAllowed(wavegenFunction.Channel) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid channel, only %v are allowed", outputChannels)})
+			return
+		}
+
+		if !isFunctionAllowed(wavegenFunction.Function) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid function, only %v are allowed", wavegenFunction)})
+			return
+		}
+
+		device.SetAnalogOutFunction(wavegenFunction.Channel, wavegenFunction.Function)
+
+		c.JSON(http.StatusOK, gin.H{"message": "Analog out function set successfully"})
+
+	}
+}
+
+func handleWavegenFrequencySet(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		var wavegenFrequency WriteWavegenFrequencyRequest
+		decoder := json.NewDecoder(c.Request.Body)
+
+		if err := decoder.Decode(&wavegenFrequency); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		if !isChannelAllowed(wavegenFrequency.Channel) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid channel, only %v are allowed", outputChannels)})
+			return
+		}
+
+		if wavegenFrequency.Frequency <= 0 || wavegenFrequency.Frequency > 200000 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid frequency, only values between 0 Hz and 200 000 Hz are allowed"})
+			return
+		}
+
+		device.SetAnalogOutFrequency(wavegenFrequency.Channel, "AnalogOutNodeCarrier", wavegenFrequency.Frequency)
+
+		c.JSON(http.StatusOK, gin.H{"message": "Analog out frequency set successfully"})
+
+	}
+}
+
+func handleWavegenEnableChannel(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		var wavegenEnableChannel WriteWavegenChannelEnableRequest
+		decoder := json.NewDecoder(c.Request.Body)
+
+		if err := decoder.Decode(&wavegenEnableChannel); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		if !isChannelAllowed(wavegenEnableChannel.Channel) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid channel, only %v are allowed", outputChannels)})
+			return
+		}
+
+		device.EnableAnalogOutChannel(wavegenEnableChannel.Channel, "AnalogOutNodeCarrier", wavegenEnableChannel.IsEnabled)
+
+		c.JSON(http.StatusOK, gin.H{"message": "Analog out channel enabled/disabled successfully"})
+
+	}
+}
+
+func handleWavegenRun(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		var wavegenRun WriteWavegenRunRequest
+		decoder := json.NewDecoder(c.Request.Body)
+
+		if err := decoder.Decode(&wavegenRun); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		if !isChannelAllowed(wavegenRun.Channel) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid channel, only %v are allowed", outputChannels)})
+			return
+		}
+
+		device.GenerateWaveform(wavegenRun.Channel, "AnalogOutNodeCarrier", wavegenRun.IsStart)
+
+		c.JSON(http.StatusOK, gin.H{"message": "Analog out channel generator started/stopped successfully"})
+
 	}
 }
