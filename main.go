@@ -51,6 +51,7 @@ func main() {
 	r.POST("/api/wavegen/write-amplitude", handleWavegenAmplitudeSet(device))
 	r.POST("/api/wavegen/write-frequency", handleWavegenFrequencySet(device))
 	//r.POST("/api/wavegen/duty-cycle")
+	r.Any("/api/scope/get-scope-data", handleScopeGetData(device))
 	r.POST("/api/wavegen/write-config", handleWavegenRun(device))
 
 	r.Any("/api/stream", cam.ServeHTTP)
@@ -116,7 +117,7 @@ type WritePinRequest struct {
 
 type WriteWavegenAmplitudeRequest struct {
 	Channel   int     `json:"channel"`
-	Amplitude float32 `json:"amplitude"`
+	Amplitude float64 `json:"amplitude"`
 }
 
 type WriteWavegenFunctionRequest struct {
@@ -126,7 +127,7 @@ type WriteWavegenFunctionRequest struct {
 
 type WriteWavegenFrequencyRequest struct {
 	Channel   int     `json:"channel"`
-	Frequency float32 `json:"frequency"`
+	Frequency float64 `json:"frequency"`
 }
 
 type WriteWavegenChannelEnableRequest struct {
@@ -138,6 +139,18 @@ type WriteWavegenRunRequest struct {
 	Channel int `json:"channel"`
 	IsStart int `json:"isStart"`
 }
+
+type GetScopeDataRequest struct {
+	Channel int `json:"channel"`
+	isStart int `json:"isStart"`
+}
+
+type ScopeData struct {
+	voltage float64 `json:"voltage"`
+	time    int64   `json:"time"`
+}
+
+type ScopeDataMeasurements []ScopeData
 
 func isPinAllowed(pin int) bool {
 	for _, allowedPin := range outputPins {
@@ -166,6 +179,38 @@ func isFunctionAllowed(function string) bool {
 	return false
 }
 
+func handleScopeGetData(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
+	return func(c *gin.Context) {
+
+		//var request ScopeDataMeasurements
+		var voltages []float64
+		var times []int64
+
+		voltages, times, _ = device.ReadScopeValues(0)
+		if len(voltages) <= 0 || len(times) <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No scope values"})
+			return
+		}
+		var i int
+		i = 0
+		scopeDataMeasurements := ScopeDataMeasurements{}
+		for i < 1000 {
+			sd := ScopeData{voltages[i], times[i]}
+			b, err = json.Marshal(sd)
+			scopeDataMeasurements = append(scopeDataMeasurements, b)
+			i++
+		}
+		fmt.Println(scopeDataMeasurements)
+		jsonData, err := json.Marshal(scopeDataMeasurements)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot map voltage and time values"})
+			return
+		}
+
+		c.JSON(http.StatusOK, string(jsonData))
+	}
+}
+
 func handleWritePin(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var pinReq WritePinRequest
@@ -184,10 +229,9 @@ func handleWritePin(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.C
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state, only 0 or 1 are allowed"})
 			return
 		}
-
 		device.SetPinState(pinReq.Pin, pinReq.State == 1)
 
-		c.JSON(http.StatusOK, gin.H{"message": "Pin state set successfully"})
+		c.JSON(http.StatusOK, gin.H{"message": "Pin set successfully"})
 	}
 }
 
@@ -314,4 +358,24 @@ func handleWavegenRun(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin
 		c.JSON(http.StatusOK, gin.H{"message": "Analog out channel generator started/stopped successfully"})
 
 	}
+}
+
+func combineVoltageAndTime(voltages []float64, times []int64) ([]byte, error) {
+	if len(voltages) != len(times) {
+		return nil, fmt.Errorf("Different lenghts: voltages=%d, times=%d",
+			len(voltages), len(times))
+	}
+
+	dataPoints := make([][]interface{}, len(voltages))
+
+	for i := 0; i < len(voltages); i++ {
+		dataPoints[i] = []interface{}{times[i], voltages[i]}
+	}
+
+	jsonData, err := json.Marshal(dataPoints)
+	if err != nil {
+		return nil, fmt.Errorf("JSON error: %v", err)
+	}
+
+	return jsonData, nil
 }
