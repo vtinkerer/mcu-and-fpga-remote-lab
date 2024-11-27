@@ -392,8 +392,6 @@ func (ad *AnalogDiscoveryDevice) GenerateWaveform(idxChannel int, analogNode str
 		}
 	}
 
-	//fmt.Println(frequency)
-
 	if frequency <= 0.0 {
 		if err := checkError(); err != nil {
 			return fmt.Errorf("incorrect frequency value: %w", err)
@@ -425,42 +423,44 @@ func (ad *AnalogDiscoveryDevice) GenerateWaveform(idxChannel int, analogNode str
 	return nil
 }
 
-func (ad *AnalogDiscoveryDevice) ReadScopeValues(channel int) ([]float64, []int64, error) {
-	// ad.ConfigAnalogInStart()
-	ad.SetAnalogInBufferSize(1000)
-	ad.SetAnalogInFrequency(1000000)
-	ad.SetAnalogInChannelRange(channel, 10)
+func (ad *AnalogDiscoveryDevice) ReadScopeValues(channel int, isFirstCapture int) ([]float64, []int64, error) {
 
-	time.Sleep(2000000000)
+	var samplingFrequency float64 = 1e06
 
-	ad.ConfigAnalogInStart()
+	// before first capture
+	if isFirstCapture == 1 {
+		ad.SetAnalogInBufferSize(600)
+		ad.SetAnalogInFrequency(samplingFrequency)
+		ad.SetAnalogInChannelRange(channel, 10)
+		time.Sleep(2000000000) // 2 seconds for stabilizing
+		ad.ConfigAnalogInStart()
+	}
+
 	var sts int
-	var i int
+	var i int64
 	i = 0
-	var rgdSamples [1000]float64
-	var timeValues [1000]int64
+	var rgdSamples [600]float64
+	var timeValues [600]int64
 
-	var baseTime int64
-	baseTime = (time.Now().UnixNano()) / 1000
-	var currentTime int64
-	for i < 1000 {
+	for i < 600 {
 		FDwfAnalogInStatus(ad.Handle, 1, &sts)
 
-		currentTime = (time.Now().UnixNano()) / 1000
-		timeValues[i] = currentTime - baseTime
+		var freq int64 = int64(samplingFrequency)
+		// convert to microseconds
+		timeValues[i] = i * 1e06 / freq
 
-		fmt.Println(currentTime)
-		//fmt.Println(sts)
+		fmt.Println(timeValues[i])
+		fmt.Println("freq")
+		// fmt.Println(freq)
 		/*if sts == 2 {
 			break
 		}*/
-		time.Sleep(10000)
 		i++
 	}
 
-	FDwfAnalogInStatusData(ad.Handle, channel, &rgdSamples[0], 1000)
+	FDwfAnalogInStatusData(ad.Handle, channel, &rgdSamples[0], 600)
 	i = 0
-	for i < 1000 {
+	for i < 600 {
 		fmt.Printf("%f \t %d\n", rgdSamples[i], timeValues[i])
 		i++
 	}

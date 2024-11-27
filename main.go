@@ -51,11 +51,10 @@ func main() {
 	r.POST("/api/wavegen/write-amplitude", handleWavegenAmplitudeSet(device))
 	r.POST("/api/wavegen/write-frequency", handleWavegenFrequencySet(device))
 	//r.POST("/api/wavegen/duty-cycle")
-	r.Any("/api/scope/get-scope-data", handleScopeGetData(device))
+	r.POST("/api/scope/get-scope-data", handleScopeGetData(device))
 	r.POST("/api/wavegen/write-config", handleWavegenRun(device))
 
 	r.Any("/api/stream", cam.ServeHTTP)
-
 	log.Fatal(r.Run(":" + cfg.PORT))
 }
 
@@ -141,16 +140,9 @@ type WriteWavegenRunRequest struct {
 }
 
 type GetScopeDataRequest struct {
-	Channel int `json:"channel"`
-	isStart int `json:"isStart"`
+	Channel        int `json:"channel"`
+	IsFirstCapture int `json:"isFirstCapture"`
 }
-
-type ScopeData struct {
-	voltage float64 `json:"voltage"`
-	time    int64   `json:"time"`
-}
-
-type ScopeDataMeasurements []ScopeData
 
 func isPinAllowed(pin int) bool {
 	for _, allowedPin := range outputPins {
@@ -182,32 +174,20 @@ func isFunctionAllowed(function string) bool {
 func handleScopeGetData(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 
-		//var request ScopeDataMeasurements
-		var voltages []float64
-		var times []int64
+		var scopeReq GetScopeDataRequest
+		decoder := json.NewDecoder(c.Request.Body)
+		if err := decoder.Decode(&scopeReq); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
 
-		voltages, times, _ = device.ReadScopeValues(0)
+		voltages, times, _ := device.ReadScopeValues(scopeReq.Channel, scopeReq.IsFirstCapture)
 		if len(voltages) <= 0 || len(times) <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "No scope values"})
 			return
 		}
-		var i int
-		i = 0
-		scopeDataMeasurements := ScopeDataMeasurements{}
-		for i < 1000 {
-			sd := ScopeData{voltages[i], times[i]}
-			b, err = json.Marshal(sd)
-			scopeDataMeasurements = append(scopeDataMeasurements, b)
-			i++
-		}
-		fmt.Println(scopeDataMeasurements)
-		jsonData, err := json.Marshal(scopeDataMeasurements)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot map voltage and time values"})
-			return
-		}
 
-		c.JSON(http.StatusOK, string(jsonData))
+		c.JSON(http.StatusOK, gin.H{"channel": scopeReq.Channel, "voltages": voltages, "times": times})
 	}
 }
 
@@ -358,24 +338,4 @@ func handleWavegenRun(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin
 		c.JSON(http.StatusOK, gin.H{"message": "Analog out channel generator started/stopped successfully"})
 
 	}
-}
-
-func combineVoltageAndTime(voltages []float64, times []int64) ([]byte, error) {
-	if len(voltages) != len(times) {
-		return nil, fmt.Errorf("Different lenghts: voltages=%d, times=%d",
-			len(voltages), len(times))
-	}
-
-	dataPoints := make([][]interface{}, len(voltages))
-
-	for i := 0; i < len(voltages); i++ {
-		dataPoints[i] = []interface{}{times[i], voltages[i]}
-	}
-
-	jsonData, err := json.Marshal(dataPoints)
-	if err != nil {
-		return nil, fmt.Errorf("JSON error: %v", err)
-	}
-
-	return jsonData, nil
 }
