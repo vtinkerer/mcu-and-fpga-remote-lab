@@ -50,7 +50,7 @@ func main() {
 	r.POST("/api/wavegen/write-function", handleWavegenFunctionSet(device))
 	r.POST("/api/wavegen/write-amplitude", handleWavegenAmplitudeSet(device))
 	r.POST("/api/wavegen/write-frequency", handleWavegenFrequencySet(device))
-	//r.POST("/api/wavegen/duty-cycle")
+	r.POST("/api/wavegen/write-duty-cycle", handleWavegenDutyCycleSet(device))
 	r.POST("/api/scope/get-scope-data", handleScopeGetData(device))
 	r.POST("/api/wavegen/write-config", handleWavegenRun(device))
 
@@ -137,6 +137,11 @@ type WriteWavegenChannelEnableRequest struct {
 type WriteWavegenRunRequest struct {
 	Channel int `json:"channel"`
 	IsStart int `json:"isStart"`
+}
+
+type WriteWavegenDutyCycleRequest struct {
+	Channel   int     `json:"channel"`
+	DutyCycle float64 `json:"dutyCycle"`
 }
 
 type GetScopeDataRequest struct {
@@ -236,6 +241,33 @@ func handleWavegenAmplitudeSet(device *analogdiscovery.AnalogDiscoveryDevice) fu
 		}
 
 		device.SetAnalogOutAmplitude(wavegenAmplitude.Channel, "AnalogOutNodeCarrier", wavegenAmplitude.Amplitude)
+
+		c.JSON(http.StatusOK, gin.H{"message": "Analog out set successfully"})
+
+	}
+}
+
+func handleWavegenDutyCycleSet(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		var wavegenDutyCycle WriteWavegenDutyCycleRequest
+		decoder := json.NewDecoder(c.Request.Body)
+
+		if err := decoder.Decode(&wavegenDutyCycle); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		if !isChannelAllowed(wavegenDutyCycle.Channel) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid channel, only %v are allowed", outputChannels)})
+			return
+		}
+
+		if wavegenDutyCycle.DutyCycle < 0.0 || wavegenDutyCycle.DutyCycle > 100.0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid duty cycle, only values between 0% and 100% are allowed"})
+			return
+		}
+
+		device.SetAnalogOutSymmetry(wavegenDutyCycle.Channel, "AnalogOutNodeCarrier", wavegenDutyCycle.DutyCycle)
 
 		c.JSON(http.StatusOK, gin.H{"message": "Analog out set successfully"})
 

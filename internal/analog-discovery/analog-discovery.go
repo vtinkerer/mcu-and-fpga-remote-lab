@@ -32,10 +32,11 @@ var FDwfAnalogOutNodeFrequencySet func(deviceHandle int32, idxChannel int, analo
 var FDwfAnalogOutNodeAmplitudeSet func(deviceHandle int32, idxChannel int, analogNode int, amplitude float64) int32
 
 // var FDwfAnalogOutNodeOffsetSet func(deviceHandle int32, idxChannel int, analogNode int, offset float32) int32
-// var FDwfAnalogOutNodeSymmetrySet func(deviceHandle int32, idxChannel int, analogNode int, percSymmetry float32) int32
+var FDwfAnalogOutNodeSymmetrySet func(deviceHandle int32, idxChannel int, analogNode int, percSymmetry float64) int32
+
 // var FDwfAnalogOutNodePhaseSet func(deviceHandle int32, idxChannel int, analogNode int, phaseDegree float32) int32
 var FDwfAnalogOutConfigure func(deviceHandle int32, idxChannel int, fStart int)
-
+var FDwfAnalogOutNodeSymmetryGet func(deviceHandle int32, idxChannel int, analogNode int, pSymmetry *float64) int32
 var FDwfAnalogOutNodeEnableGet func(deviceHandle int32, idxChannel int, analogNode int, isEnabled *int) int32
 var FDwfAnalogOutNodeFunctionGet func(deviceHandle int32, idxChannel int, analogNode int, funcName *uint16) int32
 var FDwfAnalogOutNodeAmplitudeGet func(deviceHandle int32, idxChannel int, analogNode int, pAmplitude *float64) int32
@@ -107,7 +108,7 @@ func initDL() {
 	purego.RegisterLibFunc(&FDwfAnalogOutNodeFrequencySet, dwf, "FDwfAnalogOutNodeFrequencySet")
 	purego.RegisterLibFunc(&FDwfAnalogOutNodeAmplitudeSet, dwf, "FDwfAnalogOutNodeAmplitudeSet")
 	//purego.RegisterLibFunc(&FDwfAnalogOutNodeOffsetSet, dwf, "FDwfAnalogOutNodeOffsetSet")
-	//purego.RegisterLibFunc(&FDwfAnalogOutNodeSymmetrySet, dwf, "FDwfAnalogOutNodeSymmetrySet")
+	purego.RegisterLibFunc(&FDwfAnalogOutNodeSymmetrySet, dwf, "FDwfAnalogOutNodeSymmetrySet")
 	//purego.RegisterLibFunc(&FDwfAnalogOutNodePhaseSet, dwf, "FDwfAnalogOutNodePhaseSet")
 	purego.RegisterLibFunc(&FDwfAnalogOutConfigure, dwf, "FDwfAnalogOutConfigure")
 	purego.RegisterLibFunc(&FDwfAnalogInConfigure, dwf, "FDwfAnalogInConfigure")
@@ -147,6 +148,7 @@ func initDL() {
 	//purego.RegisterLibFunc(&FDwfAnalogOutRepeatSet, dwf, "FDwfAnalogOutRepeatSet")
 	//purego.RegisterLibFunc(&FDwfAnalogOutRepeatTriggerSet, dwf, "FDwfAnalogOutRepeatTriggerSet")
 	//purego.RegisterLibFunc(&FDwfAnalogOutMasterSet, dwf, "FDwfAnalogOutMasterSet")
+	purego.RegisterLibFunc(&FDwfAnalogOutNodeSymmetryGet, dwf, "FDwfAnalogOutNodeSymmetryGet")
 	purego.RegisterLibFunc(&FDwfAnalogOutNodeFrequencyGet, dwf, "FDwfAnalogOutNodeFrequencyGet")
 	purego.RegisterLibFunc(&FDwfAnalogOutNodeAmplitudeGet, dwf, "FDwfAnalogOutNodeAmplitudeGet")
 	purego.RegisterLibFunc(&FDwfAnalogOutNodeFunctionGet, dwf, "FDwfAnalogOutNodeFunctionGet")
@@ -411,13 +413,25 @@ func (ad *AnalogDiscoveryDevice) GenerateWaveform(idxChannel int, analogNode str
 		}
 	}
 
-	ad.ConfigAnalogOut(idxChannel, fStart)
+	var symmetry float64
+	if FDwfAnalogOutNodeSymmetryGet(ad.Handle, idxChannel, a, &symmetry) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error getting analog output symmetry: %w", err)
+		}
+	}
+	fmt.Println("symmetry")
+	fmt.Println(symmetry)
+	if symmetry < 0.0 || symmetry > 100.0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("incorrect symmetry value: %w", err)
+		}
+	}
 
-	//time.Sleep(10 * time.Second)
+	ad.ConfigAnalogOut(idxChannel, fStart)
 
 	if fStart == 0 {
 		fmt.Println("Done !")
-		ad.Close()
+		//ad.Close()
 	}
 
 	return nil
@@ -551,7 +565,7 @@ func (ad *AnalogDiscoveryDevice) EnableAnalogOutChannel(indexCh int, nodeName st
 	return nil
 }
 
-// set function and node node of analog out
+// set function of analog out
 func (ad *AnalogDiscoveryDevice) SetAnalogOutNodeFunction(indexCh int, nodeName string, funcName string) error {
 	f, _ := GetFuncNumByName(funcName)
 	a, _ := GetAnalogOutNodeCarrierByName(nodeName)
@@ -568,6 +582,21 @@ func (ad *AnalogDiscoveryDevice) SetAnalogOutNodeFunction(indexCh int, nodeName 
 	FDwfAnalogOutNodeFunctionGet(ad.Handle, indexCh, a, &mmode)
 	fmt.Println("mode")
 	fmt.Println(mmode)
+	return nil
+}
+
+// set symmetry of analog out
+func (ad *AnalogDiscoveryDevice) SetAnalogOutSymmetry(indexCh int, nodeName string, percSymmetry float64) error {
+	var a int
+	a, _ = GetAnalogOutNodeCarrierByName(nodeName)
+	if a == -1 {
+		return fmt.Errorf("analog out node is incorrect")
+	}
+	if FDwfAnalogOutNodeSymmetrySet(ad.Handle, indexCh, a, percSymmetry) == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error setting analog output symmetry: %w", err)
+		}
+	}
 	return nil
 }
 
