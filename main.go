@@ -192,7 +192,12 @@ func handleScopeGetData(device *analogdiscovery.AnalogDiscoveryDevice) func(c *g
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"channel": scopeReq.Channel, "voltages": voltages, "times": times})
+		if scopeReq.IsFirstCapture == 0 {
+			c.JSON(http.StatusOK, gin.H{"channel": scopeReq.Channel, "voltages": voltages, "times": 0})
+		} else {
+			c.JSON(http.StatusOK, gin.H{"channel": scopeReq.Channel, "voltages": voltages, "times": times})
+		}
+
 	}
 }
 

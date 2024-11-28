@@ -419,8 +419,7 @@ func (ad *AnalogDiscoveryDevice) GenerateWaveform(idxChannel int, analogNode str
 			return fmt.Errorf("error getting analog output symmetry: %w", err)
 		}
 	}
-	fmt.Println("symmetry")
-	fmt.Println(symmetry)
+
 	if symmetry < 0.0 || symmetry > 100.0 {
 		if err := checkError(); err != nil {
 			return fmt.Errorf("incorrect symmetry value: %w", err)
@@ -446,7 +445,7 @@ func (ad *AnalogDiscoveryDevice) ReadScopeValues(channel int, isFirstCapture int
 		ad.SetAnalogInBufferSize(600)
 		ad.SetAnalogInFrequency(samplingFrequency)
 		ad.SetAnalogInChannelRange(channel, 10)
-		time.Sleep(2000000000) // 2 seconds for stabilizing
+		time.Sleep(1000000000) // 1 second for stabilizing
 		ad.ConfigAnalogInStart()
 	}
 
@@ -463,8 +462,8 @@ func (ad *AnalogDiscoveryDevice) ReadScopeValues(channel int, isFirstCapture int
 		// convert to microseconds
 		timeValues[i] = i * 1e06 / freq
 
-		fmt.Println(timeValues[i])
-		fmt.Println("freq")
+		//fmt.Println(timeValues[i])
+		//fmt.Println("freq")
 		// fmt.Println(freq)
 		/*if sts == 2 {
 			break
@@ -475,7 +474,7 @@ func (ad *AnalogDiscoveryDevice) ReadScopeValues(channel int, isFirstCapture int
 	FDwfAnalogInStatusData(ad.Handle, channel, &rgdSamples[0], 600)
 	i = 0
 	for i < 600 {
-		fmt.Printf("%f \t %d\n", rgdSamples[i], timeValues[i])
+		//fmt.Printf("%f \t %d\n", rgdSamples[i], timeValues[i])
 		i++
 	}
 	return rgdSamples[:], timeValues[:], nil
