@@ -5,6 +5,6 @@ services:
     image: nginx:latest
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf
-      - /home/bogdan/projects/client/build:/var/www/frontend
+      - /home/pi/mcu-and-fpga-remote-lab-frontend/build:/var/www/frontend
     network_mode: host
     restart: always
