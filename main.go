@@ -43,6 +43,7 @@ func main() {
 		device.SetPinMode(outputPin, true)
 	}
 
+	// bind requests to their handlers
 	r.POST("/api/firmware/fpga", handleFirmware(*cfg, true))
 	r.POST("/api/firmware/mcu", handleFirmware(*cfg, false))
 	r.POST("/api/write-pin", handleWritePin(device))
@@ -53,16 +54,18 @@ func main() {
 	r.POST("/api/wavegen/write-duty-cycle", handleWavegenDutyCycleSet(device))
 	r.POST("/api/scope/get-scope-data", handleScopeGetData(device))
 	r.POST("/api/wavegen/write-config", handleWavegenRun(device))
-
 	r.Any("/api/stream", cam.ServeHTTP)
+
 	log.Fatal(r.Run(":" + cfg.PORT))
 }
 
+// for FPGA and MCU program files
 const (
 	maxUploadSize = 10 * (10 << 20) // 100 MB
 	uploadPath    = "./uploads"
 )
 
+// handler for programming FPGA and MCU
 func handleFirmware(cfg config.Config, isFPGA bool) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// Limit the size of the request body
@@ -109,6 +112,7 @@ func handleFirmware(cfg config.Config, isFPGA bool) func(c *gin.Context) {
 	}
 }
 
+// requests structure
 type WritePinRequest struct {
 	Pin   int `json:"pin"`
 	State int `json:"state"`
@@ -149,6 +153,7 @@ type GetScopeDataRequest struct {
 	IsFirstCapture int `json:"isFirstCapture"`
 }
 
+// check if given pin is allowed
 func isPinAllowed(pin int) bool {
 	for _, allowedPin := range outputPins {
 		if pin == allowedPin {
@@ -158,6 +163,7 @@ func isPinAllowed(pin int) bool {
 	return false
 }
 
+// check if given channel is allowed
 func isChannelAllowed(channel int) bool {
 	for _, allowedChannel := range outputChannels {
 		if channel == allowedChannel {
@@ -167,6 +173,7 @@ func isChannelAllowed(channel int) bool {
 	return false
 }
 
+// check if given function is allowed
 func isFunctionAllowed(function string) bool {
 	for _, allowedFunction := range wavegenFunctions {
 		if function == allowedFunction {
@@ -176,6 +183,7 @@ func isFunctionAllowed(function string) bool {
 	return false
 }
 
+// handler for oscilloscope feature
 func handleScopeGetData(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 
@@ -201,6 +209,7 @@ func handleScopeGetData(device *analogdiscovery.AnalogDiscoveryDevice) func(c *g
 	}
 }
 
+// handler for digital inputs pin set
 func handleWritePin(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var pinReq WritePinRequest
@@ -225,6 +234,7 @@ func handleWritePin(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.C
 	}
 }
 
+// handler for setting wavegen amplitude
 func handleWavegenAmplitudeSet(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenAmplitude WriteWavegenAmplitudeRequest
@@ -252,6 +262,7 @@ func handleWavegenAmplitudeSet(device *analogdiscovery.AnalogDiscoveryDevice) fu
 	}
 }
 
+// handler for setting wavegen duty cycle (symmetry)
 func handleWavegenDutyCycleSet(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenDutyCycle WriteWavegenDutyCycleRequest
@@ -279,6 +290,7 @@ func handleWavegenDutyCycleSet(device *analogdiscovery.AnalogDiscoveryDevice) fu
 	}
 }
 
+// handler for setting wavegen function type
 func handleWavegenFunctionSet(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenFunction WriteWavegenFunctionRequest
@@ -306,6 +318,7 @@ func handleWavegenFunctionSet(device *analogdiscovery.AnalogDiscoveryDevice) fun
 	}
 }
 
+// handler for setting wavegen frequency
 func handleWavegenFrequencySet(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenFrequency WriteWavegenFrequencyRequest
@@ -333,6 +346,7 @@ func handleWavegenFrequencySet(device *analogdiscovery.AnalogDiscoveryDevice) fu
 	}
 }
 
+// handler for enabling wavegen channel
 func handleWavegenEnableChannel(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenEnableChannel WriteWavegenChannelEnableRequest
@@ -355,6 +369,7 @@ func handleWavegenEnableChannel(device *analogdiscovery.AnalogDiscoveryDevice) f
 	}
 }
 
+// handler for running waveform generator
 func handleWavegenRun(device *analogdiscovery.AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenRun WriteWavegenRunRequest
