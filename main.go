@@ -44,6 +44,21 @@ func main() {
 	}
 
 	// bind requests to their handlers
+	// u ,err := uart.NewUART()
+	// if err != nil {
+	// 	log.Fatalf("Error creating UART device: %v", err)
+	// }
+
+	// u.StartListening()
+
+	// go func() {
+	// 	for {
+	// 		msg := <-u.ReadChannel
+	// 		fmt.Println("Received message from UART:", string(msg))
+	// 	}
+	// }()
+
+
 	r.POST("/api/firmware/fpga", handleFirmware(*cfg, true))
 	r.POST("/api/firmware/mcu", handleFirmware(*cfg, false))
 	r.POST("/api/write-pin", handleWritePin(device))
