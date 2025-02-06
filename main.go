@@ -4,6 +4,7 @@ import (
 	analogdiscovery "digitrans-lab-go/internal/analog-discovery"
 	"digitrans-lab-go/internal/camera"
 	"digitrans-lab-go/internal/config"
+	currentsession "digitrans-lab-go/internal/current-session"
 	"digitrans-lab-go/internal/fpga"
 	stm32flash "digitrans-lab-go/internal/stm32-flash"
 	"encoding/json"
@@ -20,6 +21,7 @@ var outputChannels = []int{0, 1}
 var wavegenFunctions = []string{"sine", "rampup", "triangle", "pulse"}
 
 func main() {
+
 
 	r := gin.Default()
 
@@ -70,6 +72,9 @@ func main() {
 	r.POST("/api/scope/get-scope-data", handleScopeGetData(device))
 	r.POST("/api/wavegen/write-config", handleWavegenRun(device))
 	r.Any("/api/stream", cam.ServeHTTP)
+	r.POST("/session", currentsession.HandleCreateSession(*cfg))
+	r.GET("/session", currentsession.HandleGetSession(*cfg))
+	r.DELETE("/session", currentsession.HandleDeleteSession(*cfg))
 
 	log.Fatal(r.Run(":" + cfg.PORT))
 }

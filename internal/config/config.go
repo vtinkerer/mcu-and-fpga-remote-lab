@@ -16,6 +16,7 @@ type Config struct {
 	TMS int
 	TCK int
 	TDO int
+	MASTER_SERVER_API_SECRET string
 }
 
 func LoadConfig() (*Config, error) {
@@ -71,6 +72,11 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("Error parsing TDO: %w", err)
 	}
 	config.TDO = TDO
+
+	config.MASTER_SERVER_API_SECRET = os.Getenv("MASTER_SERVER_API_SECRET")
+	if config.MASTER_SERVER_API_SECRET == "" {
+		return nil, fmt.Errorf("MASTER_SERVER_API_SECRET is empty")
+	}
 
 	return config, nil
 }
