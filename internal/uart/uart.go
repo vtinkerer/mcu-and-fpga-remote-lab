@@ -2,71 +2,104 @@ package uart
 
 import (
 	"fmt"
-	"log"
+	"sync"
 
 	"go.bug.st/serial"
-	"go.bug.st/serial/enumerator"
 )
 
-type UART struct  {
-	port serial.Port
-	ReadChannel chan []byte
+type UART struct {
+    port     serial.Port
+    mu       sync.Mutex
+    isActive bool
 }
 
-func logPortsInfo() {
-	ports, err := enumerator.GetDetailedPortsList()
-	if err != nil {
-		log.Fatal(err)
-	}
-	if len(ports) == 0 {
-		fmt.Println("No serial ports found!")
-	}
-	for _, port := range ports {
-		fmt.Printf("Found port: %s\n", port.Name)
-		if port.IsUSB {
-			fmt.Printf("   USB ID     %s:%s\n", port.VID, port.PID)
-			fmt.Printf("   USB serial %s\n", port.SerialNumber)
-		}
-	}
+func NewUART() *UART {
+    return &UART{}
 }
 
-func NewUART() (*UART, error) {
-	logPortsInfo()
-
+func openSerialPort() (serial.Port, error) {
+	// Create new UART but with our existing ReadChannel
 	mode := &serial.Mode{
 		BaudRate: 115200,
 	}
-	port, err := serial.Open("/dev/ttyACM0", mode)
+
+	ports, err := serial.GetPortsList()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list ports: %w", err)
 	}
 
-	return &UART{port: port}, nil
-}
-
-func (u *UART) StartListening() {
-	go func() {
-		for {
-			buf := make([]byte, 1024)
-			n, err := u.port.Read(buf)
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
-			u.ReadChannel <- buf[:n]
-		}
-	}()
-}
-
-func (u *UART) Write(data []byte) {
-	n, err := u.port.Write(data)
-	if err != nil {
-		log.Fatal(err)
+	if len(ports) == 0 {
+		return nil, fmt.Errorf("no serial ports found")
 	}
-	fmt.Printf("Wrote %d bytes: %s\n", n, data)
+
+	port, err := serial.Open(ports[0], mode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open port %s: %w", ports[0], err)
+	}
+
+	return port, nil
 }
 
-func (u *UART) Close() {
-	fmt.Println("Closing UART port")
-	u.port.Close()
+func (u *UART) Open() error {
+    u.mu.Lock()
+    defer u.mu.Unlock()
+
+    if u.isActive {
+        return nil
+    }
+
+    port, err := openSerialPort()
+    if err != nil {
+        return err
+    }
+
+    u.port = port
+    u.isActive = true
+    return nil
+}
+
+func (u *UART) Close() error {
+    u.mu.Lock()
+    defer u.mu.Unlock()
+
+    if !u.isActive {
+        return nil
+    }
+
+    err := u.port.Close()
+    if err != nil {
+        return err
+    }
+
+    u.port = nil
+    u.isActive = false
+    return nil
+}
+
+func (u *UART) Reset() error {
+    if err := u.Close(); err != nil {
+        return err
+    }
+    return u.Open()
+}
+
+func (u *UART) Read(buffer []byte) (int, error) {
+    u.mu.Lock()
+    defer u.mu.Unlock()
+
+    if !u.isActive {
+        return 0, nil
+    }
+    return u.port.Read(buffer)
+}
+
+func (u *UART) Write(data []byte) error {
+    u.mu.Lock()
+    defer u.mu.Unlock()
+
+    if !u.isActive {
+        return nil
+    }
+    _, err := u.port.Write(data)
+    return err
 }

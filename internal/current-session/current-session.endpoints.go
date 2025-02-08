@@ -26,7 +26,7 @@ func HandleCreateSession(cfg config.Config) func(c *gin.Context) {
 			return
 		}
 
-		if validateAuthorization(c, cfg) == false {
+		if !validateAuthorization(c, cfg) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
@@ -50,7 +50,7 @@ func HandleCreateSession(cfg config.Config) func(c *gin.Context) {
 
 func HandleGetSession(cfg config.Config) func(c *gin.Context) {
 	return func(c *gin.Context) {
-		if validateAuthorization(c, cfg) == false {
+		if !validateAuthorization(c, cfg) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
@@ -68,7 +68,7 @@ func HandleGetSession(cfg config.Config) func(c *gin.Context) {
 
 func HandleDeleteSession(cfg config.Config) func(c *gin.Context) {
 	return func(c *gin.Context) {
-		if validateAuthorization(c, cfg) == false {
+		if !validateAuthorization(c, cfg) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}

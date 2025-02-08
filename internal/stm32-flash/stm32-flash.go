@@ -52,7 +52,7 @@ func runFlash(filePath string, resetPin, boot0Pin int, attempts int) error {
 			if err != nil {
 				log.Println("Failed to exit bootloader during the failed bootloader exit:", err)
 			}
-			return fmt.Errorf("Failed to flash: %w", err)
+			return fmt.Errorf("failed to flash after many attempts: %w", err)
 		}
 		return runFlash(filePath, resetPin, boot0Pin, attempts-1)
 	}
