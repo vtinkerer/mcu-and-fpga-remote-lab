@@ -104,5 +104,6 @@ func (u *UART) Write(data []byte) error {
         return nil
     }
     _, err := u.port.Write(data)
+    fmt.Println("Data written to UART: ", string(data))
     return err
 }

@@ -119,6 +119,10 @@ func (s *Server) diconnectWebSocket() {
 	}
 }
 
+type WsMessage struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
 // for FPGA and MCU program files
 const (
 	maxUploadSize = 10 * (10 << 20) // 100 MB
@@ -132,19 +136,21 @@ func (s *Server) handleWSToUART(conn *websocket.Conn) {
             return
         }
 
+		var wsMessage WsMessage
+		err = json.Unmarshal(message, &wsMessage)
+		if err != nil {
+			log.Printf("Incoming from WS JSON unmarshal error: %v", err)
+		}
+
         // Forward message to UART
-        if err := s.u.Write(message); err != nil {
+        if err := s.u.Write([]byte(wsMessage.Text)); err != nil {
             log.Printf("UART write error: %v", err)
         }
     }
 }
-
-type WsMessage struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
 func (s *Server) handleUARTToWS(conn *websocket.Conn, ctx context.Context) {
     buffer := make([]byte, 1024)
+	logCounter := 50
     for {
 		select {
 		case <-ctx.Done():
@@ -158,6 +164,11 @@ func (s *Server) handleUARTToWS(conn *websocket.Conn, ctx context.Context) {
 			}
 			// Better to sleep than to keep using CPU
 			if (n == 0) {
+				logCounter-- 
+				if logCounter == 0 {
+					logCounter = 50
+					fmt.Println("No data from UART (Read 0 bytes)")
+				}
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
