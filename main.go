@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	analogdiscovery "digitrans-lab-go/internal/analog-discovery"
 	"digitrans-lab-go/internal/camera"
 	"digitrans-lab-go/internal/config"
@@ -83,7 +84,7 @@ func main() {
 	r.POST("/api/scope/get-scope-data", analogdiscovery.HandleScopeGetData(device))
 	r.POST("/api/wavegen/write-config", analogdiscovery.HandleWavegenRun(device))
 	r.Any("/api/stream", cam.ServeHTTP)
-	r.POST("/session", currentsession.HandleCreateSession(*cfg, func() {
+	r.POST("/api/session", currentsession.HandleCreateSession(*cfg, func() {
 		secondsRemaining := server.session.SessionEndTime.Sub(time.Now()).Seconds()
 		fmt.Println("Session created, starting timer for ", secondsRemaining, " seconds")
 		server.timer.SetDuration(time.Duration(secondsRemaining) * time.Second)
@@ -91,8 +92,8 @@ func main() {
 	}, func() {
 		server.diconnectWebSocket()
 	}))
-	r.GET("/session", currentsession.HandleGetSession(*cfg))
-	r.DELETE("/session", currentsession.HandleDeleteSession(*cfg, func() {
+	r.GET("/api/session", currentsession.HandleGetSession(*cfg))
+	r.DELETE("/api/session", currentsession.HandleDeleteSession(*cfg, func() {
 		server.timer.Stop()
 		server.diconnectWebSocket()
 	}))
@@ -142,11 +143,12 @@ type WsMessage struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }
-func (s *Server) handleUARTToWS(conn *websocket.Conn, done chan struct{}) {
+func (s *Server) handleUARTToWS(conn *websocket.Conn, ctx context.Context) {
     buffer := make([]byte, 1024)
     for {
 		select {
-		case <-done:
+		case <-ctx.Done():
+			fmt.Println("Exit UART-to-WS loop because of context cancellation")
 			return
 		default:
 			n, err := s.u.Read(buffer)
@@ -154,7 +156,6 @@ func (s *Server) handleUARTToWS(conn *websocket.Conn, done chan struct{}) {
 				log.Printf("UART read error: %v", err)
 				return
 			}
-
 			// Better to sleep than to keep using CPU
 			if (n == 0) {
 				time.Sleep(100 * time.Millisecond)
@@ -184,17 +185,23 @@ func (s *Server) handleUARTToWS(conn *websocket.Conn, done chan struct{}) {
 }
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
     // Check if there's already an active connection
+	fmt.Println("Trying to lock wsConnMu")
     s.wsConnMu.Lock()
+	fmt.Println("Handle WebSocket called")
     if s.wsConn != nil {
+		log.Println("Only one WebSocket connection allowed at a time")
 		http.Error(w, "Only one WebSocket connection allowed at a time", http.StatusConflict)
         s.wsConnMu.Unlock()
         return
     }
+	fmt.Println("Checked that there is no active connection")
 	if !s.session.IsActive() || !s.session.ValidateToken(r.Header.Get("Authorization")) {
+		log.Println("Unauthorized")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		s.wsConnMu.Unlock()
 		return
 	}
+	fmt.Println("Checked that session is active and token is valid")
 
     // Upgrade the connection
     conn, err := s.wsUpgrader.Upgrade(w, r, nil)
@@ -203,27 +210,33 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
         log.Printf("WebSocket upgrade failed: %v", err)
         return
     }
+	fmt.Println("Upgraded WebSocket connection")
 
     // Store the connection
     s.wsConn = conn
     s.wsConnMu.Unlock()
 
-	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
 
     // Clean up on disconnect
     defer func() {
+		fmt.Println("Trying to get lock to handle disconnect (clean up)")
         s.wsConnMu.Lock()
+		fmt.Println("Got lock to handle disconnect (clean up)")
 		s.timer.Stop()
+		s.session.Reset()
         s.wsConn = nil
-		done <- struct{}{}
+		cancel()
 		conn.Close()
+		fmt.Println("Disconnected WebSocket (clean up)")
         s.wsConnMu.Unlock()
+		fmt.Println("Released lock to handle disconnect (clean up)")
     }()
 
-    log.Println("New WebSocket connection established")
+    fmt.Println("New WebSocket connection established")
 
     // Start message handling
-    go s.handleUARTToWS(conn, done)
+    go s.handleUARTToWS(conn, ctx)
     s.handleWSToUART(conn)
 }
 

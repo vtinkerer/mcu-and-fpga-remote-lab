@@ -3,6 +3,7 @@ package uart
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"go.bug.st/serial"
 )
@@ -87,9 +88,11 @@ func (u *UART) Read(buffer []byte) (int, error) {
     u.mu.Lock()
     defer u.mu.Unlock()
 
+    
     if !u.isActive {
         return 0, nil
     }
+    u.port.SetReadTimeout(time.Millisecond * 100)
     return u.port.Read(buffer)
 }
 
