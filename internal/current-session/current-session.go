@@ -16,6 +16,10 @@ var (
 	once sync.Once
 )
 
+func (c *CurrentSession) IsActive() bool {
+	return c.isActive
+}
+
 func GetCurrentSession() *CurrentSession {
 	once.Do(func() {
 		instance = &CurrentSession{isActive: false}

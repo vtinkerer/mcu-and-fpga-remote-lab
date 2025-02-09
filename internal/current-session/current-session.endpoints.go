@@ -17,7 +17,7 @@ type CreateSessionRequest struct {
 	Token string `json:"token"`
 	SessionEndTime string `json:"sessionEndTime"`
 }
-func HandleCreateSession(cfg config.Config) func(c *gin.Context) {
+func HandleCreateSession(cfg config.Config, createdCb func(), overwrittenCb func()) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var request CreateSessionRequest
 		decoder := json.NewDecoder(c.Request.Body)
@@ -39,8 +39,10 @@ func HandleCreateSession(cfg config.Config) func(c *gin.Context) {
 
 		session := GetCurrentSession()
 		isOverwritten := session.Set(request.Token, parsedTime)
+		createdCb()
 
 		if isOverwritten {
+			overwrittenCb()
 			c.JSON(http.StatusConflict, gin.H{"message": "Session overwritten"})
 			return
 		}
@@ -66,7 +68,7 @@ func HandleGetSession(cfg config.Config) func(c *gin.Context) {
 	}
 }
 
-func HandleDeleteSession(cfg config.Config) func(c *gin.Context) {
+func HandleDeleteSession(cfg config.Config, cb func()) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		if !validateAuthorization(c, cfg) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
@@ -75,6 +77,8 @@ func HandleDeleteSession(cfg config.Config) func(c *gin.Context) {
 
 		session := GetCurrentSession()
 		isReallyReset := session.Reset()
+
+		cb()
 
 		if isReallyReset {
 			c.JSON(http.StatusConflict, gin.H{"message": "Session was reset"})

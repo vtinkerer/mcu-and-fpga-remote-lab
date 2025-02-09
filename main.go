@@ -7,12 +7,15 @@ import (
 	currentsession "digitrans-lab-go/internal/current-session"
 	"digitrans-lab-go/internal/fpga"
 	stm32flash "digitrans-lab-go/internal/stm32-flash"
+	"digitrans-lab-go/internal/timer"
 	"digitrans-lab-go/internal/uart"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -24,6 +27,7 @@ type Server struct {
     wsUpgrader  websocket.Upgrader
     wsConn 		*websocket.Conn
     wsConnMu   	sync.Mutex
+	timer 		*timer.Timer
 }
 
 func NewServer() *Server {
@@ -38,6 +42,7 @@ func NewServer() *Server {
             },
         },
 		wsConn: nil,
+		timer: timer.NewTimer(10 * time.Second, func() {}),
     }
 }
 
@@ -66,17 +71,6 @@ func main() {
 		device.SetPinMode(outputPin, true)
 	}
 
-	// go func() {
-	// 	buf := make([]byte, 1024)
-	// 	for {
-	// 		val, err  := u.Read(buf)
-	// 		if err != nil {
-	// 			fmt.Println("Error reading from UART: ", err)
-	// 		} else {
-	// 			fmt.Println("Read value: ", string(buf[:val]))
-	// 		}
-	// 	}
-	// }()
 
 	r.POST("/api/firmware/fpga", handleFirmware(*cfg, true, server))
 	r.POST("/api/firmware/mcu", handleFirmware(*cfg, false, server))
@@ -89,14 +83,39 @@ func main() {
 	r.POST("/api/scope/get-scope-data", analogdiscovery.HandleScopeGetData(device))
 	r.POST("/api/wavegen/write-config", analogdiscovery.HandleWavegenRun(device))
 	r.Any("/api/stream", cam.ServeHTTP)
-	r.POST("/session", currentsession.HandleCreateSession(*cfg))
+	r.POST("/session", currentsession.HandleCreateSession(*cfg, func() {
+		secondsRemaining := server.session.SessionEndTime.Sub(time.Now()).Seconds()
+		fmt.Println("Session created, starting timer for ", secondsRemaining, " seconds")
+		server.timer.SetDuration(time.Duration(secondsRemaining) * time.Second)
+		server.timer.Start(server.diconnectWebSocket)
+	}, func() {
+		server.diconnectWebSocket()
+	}))
 	r.GET("/session", currentsession.HandleGetSession(*cfg))
-	r.DELETE("/session", currentsession.HandleDeleteSession(*cfg))
+	r.DELETE("/session", currentsession.HandleDeleteSession(*cfg, func() {
+		server.timer.Stop()
+		server.diconnectWebSocket()
+	}))
 	r.GET("/ws", func (c *gin.Context) {
 		server.handleWebSocket(c.Writer, c.Request)
 	})
 
 	log.Fatal(r.Run(":" + cfg.PORT))
+}
+
+func (s *Server) diconnectWebSocket() {
+	message := WsMessage{
+		Type: "disconnect",
+	}
+	json, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("JSON marshal error: %v", err)
+		return
+	}
+	if s.wsConn != nil {
+		s.wsConn.WriteMessage(websocket.TextMessage, json)
+		s.wsConn.Close()
+	}
 }
 
 // for FPGA and MCU program files
@@ -119,39 +138,63 @@ func (s *Server) handleWSToUART(conn *websocket.Conn) {
     }
 }
 
-func (s *Server) handleUARTToWS(conn *websocket.Conn) {
+type WsMessage struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+func (s *Server) handleUARTToWS(conn *websocket.Conn, done chan struct{}) {
     buffer := make([]byte, 1024)
     for {
-        n, err := s.u.Read(buffer)
-        if err != nil {
-            log.Printf("UART read error: %v", err)
-            return
-        }
+		select {
+		case <-done:
+			return
+		default:
+			n, err := s.u.Read(buffer)
+			if err != nil {
+				log.Printf("UART read error: %v", err)
+				return
+			}
 
-        // Check if this connection is still the active one
-        s.wsConnMu.Lock()
-        isActive := s.wsConn == conn
-        s.wsConnMu.Unlock()
+			// Better to sleep than to keep using CPU
+			if (n == 0) {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
 
-        if !isActive {
-            return
-        }
+			fmt.Println("Data from UART: ", string(buffer[:n]))
 
-        // Forward UART data to WebSocket
-        if err := conn.WriteMessage(websocket.BinaryMessage, buffer[:n]); err != nil {
-            log.Printf("WebSocket write error: %v", err)
-            return
-        }
+			message := WsMessage{
+				Type: "uart",
+				Text: string(buffer[:n]),
+			}
+
+			json, err := json.Marshal(message)
+			if err != nil {
+				log.Printf("JSON marshal error: %v", err)
+				return
+			}
+
+			// Forward UART data to WebSocket
+			if err := conn.WriteMessage(websocket.TextMessage, json); err != nil {
+				log.Printf("WebSocket write error: %v", err)
+				return
+			}
+		}
     }
 }
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
     // Check if there's already an active connection
     s.wsConnMu.Lock()
     if s.wsConn != nil {
+		http.Error(w, "Only one WebSocket connection allowed at a time", http.StatusConflict)
         s.wsConnMu.Unlock()
-        http.Error(w, "Only one WebSocket connection allowed at a time", http.StatusConflict)
         return
     }
+	if !s.session.IsActive() || !s.session.ValidateToken(r.Header.Get("Authorization")) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		s.wsConnMu.Unlock()
+		return
+	}
 
     // Upgrade the connection
     conn, err := s.wsUpgrader.Upgrade(w, r, nil)
@@ -165,20 +208,22 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
     s.wsConn = conn
     s.wsConnMu.Unlock()
 
+	done := make(chan struct{})
+
     // Clean up on disconnect
     defer func() {
         s.wsConnMu.Lock()
-        if s.wsConn == conn {  // Only clear if it's still the same connection
-            s.wsConn = nil
-        }
+		s.timer.Stop()
+        s.wsConn = nil
+		done <- struct{}{}
+		conn.Close()
         s.wsConnMu.Unlock()
-        conn.Close()
     }()
 
     log.Println("New WebSocket connection established")
 
     // Start message handling
-    go s.handleUARTToWS(conn)
+    go s.handleUARTToWS(conn, done)
     s.handleWSToUART(conn)
 }
 
