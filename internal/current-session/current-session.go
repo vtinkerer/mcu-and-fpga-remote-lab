@@ -1,7 +1,6 @@
 package currentsession
 
 import (
-	"net/http"
 	"sync"
 	"time"
 
@@ -47,11 +46,7 @@ func (c *CurrentSession) ValidateToken(token string) bool {
 }
 
 func (c *CurrentSession) ValidateTokenHttp(ctx *gin.Context) bool {
-	isValid := c.ValidateToken(ctx.Request.Header.Get("Authorization"))
-	if (!isValid) {
-		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-	}
-	return isValid
+	return c.ValidateToken(ctx.Request.Header.Get("Authorization"))
 }
 
 // Returns true if the session was overwritten

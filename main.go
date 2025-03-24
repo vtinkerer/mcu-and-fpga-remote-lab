@@ -74,7 +74,7 @@ func main() {
 	authRoutes := r.Group("")
 	{
 		authRoutes.Use(AuthMiddleware())
-		
+
 		authRoutes.POST("/api/firmware/fpga", handleFirmware(*cfg, true, server))
 		authRoutes.POST("/api/firmware/mcu", handleFirmware(*cfg, false, server))
 		authRoutes.POST("/api/write-pin", analogdiscovery.HandleWritePin(device))
@@ -111,9 +111,9 @@ func main() {
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if (!currentsession.GetCurrentSession().ValidateTokenHttp(c)) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
-
 		c.Next()
 	}
 }
