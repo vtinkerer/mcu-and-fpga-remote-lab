@@ -28,6 +28,7 @@ type Server struct {
     wsConn 		*websocket.Conn
     wsConnMu   	sync.Mutex
 	timer 		*timer.Timer
+	deviceType  string
 }
 
 func NewServer() *Server {
@@ -110,7 +111,31 @@ func main() {
 		}))
 	}
 
-	log.Fatal(r.Run(":" + cfg.PORT))
+	// Check which device is connected:
+	err = server.CheckDeviceType(cfg)
+
+	if (err == nil) {
+		log.Println("Found device: ", server.deviceType)
+		log.Fatal(r.Run(":" + cfg.PORT))
+	} else {
+		log.Fatal("Couldn't detect any device connected: ", err)
+	}
+}
+
+func (s *Server) CheckDeviceType(cfg *config.Config) error {
+	err := flashMCU(*cfg, filepath.Join("./example-firmware", "mcu.hex"), s)
+	if (err == nil) {
+		s.deviceType = "mcu"
+		return nil
+	}
+
+	err = flashFPGA(*cfg, filepath.Join("./example-firmware", "fpga.svg"))
+	if (err == nil) {
+		s.deviceType = "fpga"
+		return nil
+	}
+
+	return fmt.Errorf("No device detected: %w", err)
 }
 
 func ClientAuthMiddleware() gin.HandlerFunc {
@@ -273,6 +298,21 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
     s.handleWSToUART(conn)
 }
 
+func flashFPGA(cfg config.Config, fp string) error {
+	fmt.Println("Flashing FPGA")
+	device := fpga.CreateFPGA(cfg.TDI, cfg.TDO, cfg.TCK, cfg.TMS)
+	err := device.Flash(fp)
+	return err
+}
+
+func flashMCU(cfg config.Config, fp string, server *Server) error {
+	server.u.Close()
+	defer server.u.Reset()
+	fmt.Println("Flashing STM32")
+	err := stm32flash.Flash(fp, cfg.RESET_PIN, cfg.BOOT0_PIN)
+	return err
+}
+
 // handler for programming FPGA and MCU
 func handleFirmware(cfg config.Config, isFPGA bool, server *Server) func(c *gin.Context) {
 	return func(c *gin.Context) {
@@ -303,14 +343,9 @@ func handleFirmware(cfg config.Config, isFPGA bool, server *Server) func(c *gin.
 		fmt.Println("Firmware file uploaded:", file.Filename, " to ", fp, " for ", postfix)
 
 		if isFPGA {
-			fmt.Println("Flashing FPGA")
-			device := fpga.CreateFPGA(cfg.TDI, cfg.TDO, cfg.TCK, cfg.TMS)
-			err = device.Flash(fp)
+			err = flashFPGA(cfg, fp)
 		} else {
-			server.u.Close()
-			defer server.u.Reset()
-			fmt.Println("Flashing STM32")
-			err = stm32flash.Flash(fp, cfg.RESET_PIN, cfg.BOOT0_PIN)
+			err = flashMCU(cfg, fp, server)
 		}
 
 		if err != nil {
