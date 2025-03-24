@@ -43,7 +43,7 @@ func HandleCreateSession(cfg config.Config, createdCb func(), overwrittenCb func
 
 		if isOverwritten {
 			overwrittenCb()
-			c.JSON(http.StatusConflict, gin.H{"message": "Session overwritten"})
+			c.JSON(http.StatusCreated, gin.H{"message": "Session overwritten"})
 			return
 		}
 		c.JSON(http.StatusCreated, gin.H{"message": "Successfully created"})
@@ -81,7 +81,7 @@ func HandleDeleteSession(cfg config.Config, cb func()) func(c *gin.Context) {
 		cb()
 
 		if isReallyReset {
-			c.JSON(http.StatusConflict, gin.H{"message": "Session was reset"})
+			c.JSON(http.StatusOK, gin.H{"message": "Session was reset"})
 			return
 		}
 
