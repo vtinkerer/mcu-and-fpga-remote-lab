@@ -71,47 +71,61 @@ func main() {
 	}
 
 
-	authRoutes := r.Group("")
+	clientAuthRoutes := r.Group("")
 	{
-		authRoutes.Use(AuthMiddleware())
+		clientAuthRoutes.Use(ClientAuthMiddleware())
 
-		authRoutes.POST("/api/firmware/fpga", handleFirmware(*cfg, true, server))
-		authRoutes.POST("/api/firmware/mcu", handleFirmware(*cfg, false, server))
-		authRoutes.POST("/api/write-pin", analogdiscovery.HandleWritePin(device))
-		authRoutes.POST("/api/wavegen/write-channel", analogdiscovery.HandleWavegenEnableChannel(device))
-		authRoutes.POST("/api/wavegen/write-function", analogdiscovery.HandleWavegenFunctionSet(device))
-		authRoutes.POST("/api/wavegen/write-amplitude", analogdiscovery.HandleWavegenAmplitudeSet(device))
-		authRoutes.POST("/api/wavegen/write-frequency", analogdiscovery.HandleWavegenFrequencySet(device))
-		authRoutes.POST("/api/wavegen/write-duty-cycle", analogdiscovery.HandleWavegenDutyCycleSet(device))
-		authRoutes.POST("/api/scope/get-scope-data", analogdiscovery.HandleScopeGetData(device))
-		authRoutes.POST("/api/wavegen/write-config", analogdiscovery.HandleWavegenRun(device))
-		authRoutes.Any("/api/stream", cam.ServeHTTP)
-		authRoutes.GET("/api/my-session", currentsession.UserGetSessionMetadata())
+		clientAuthRoutes.POST("/api/firmware/fpga", handleFirmware(*cfg, true, server))
+		clientAuthRoutes.POST("/api/firmware/mcu", handleFirmware(*cfg, false, server))
+		clientAuthRoutes.POST("/api/write-pin", analogdiscovery.HandleWritePin(device))
+		clientAuthRoutes.POST("/api/wavegen/write-channel", analogdiscovery.HandleWavegenEnableChannel(device))
+		clientAuthRoutes.POST("/api/wavegen/write-function", analogdiscovery.HandleWavegenFunctionSet(device))
+		clientAuthRoutes.POST("/api/wavegen/write-amplitude", analogdiscovery.HandleWavegenAmplitudeSet(device))
+		clientAuthRoutes.POST("/api/wavegen/write-frequency", analogdiscovery.HandleWavegenFrequencySet(device))
+		clientAuthRoutes.POST("/api/wavegen/write-duty-cycle", analogdiscovery.HandleWavegenDutyCycleSet(device))
+		clientAuthRoutes.POST("/api/scope/get-scope-data", analogdiscovery.HandleScopeGetData(device))
+		clientAuthRoutes.POST("/api/wavegen/write-config", analogdiscovery.HandleWavegenRun(device))
+		clientAuthRoutes.Any("/api/stream", cam.ServeHTTP)
+		clientAuthRoutes.GET("/api/my-session", currentsession.UserGetSessionMetadata())
+		clientAuthRoutes.GET("/ws", func (c *gin.Context) {
+			server.handleWebSocket(c.Writer, c.Request)
+		})
 	}
 
-	r.POST("/api/session", currentsession.HandleCreateSession(*cfg, func() {
-		secondsRemaining := currentsession.GetCurrentSession().SessionEndTime.Sub(time.Now()).Seconds()
-		fmt.Println("Session created, starting timer for ", secondsRemaining, " seconds")
-		server.timer.SetDuration(time.Duration(secondsRemaining) * time.Second)
-		server.timer.Start(server.diconnectWebSocket)
-	}, func() {
-		server.diconnectWebSocket()
-	}))
-	r.GET("/api/session", currentsession.HandleGetSession(*cfg))
-	r.DELETE("/api/session", currentsession.HandleDeleteSession(*cfg, func() {
-		server.timer.Stop()
-		server.diconnectWebSocket()
-	}))
-	r.GET("/ws", func (c *gin.Context) {
-		server.handleWebSocket(c.Writer, c.Request)
-	})
+	backendAuthRoutes := r.Group("")
+	{
+		backendAuthRoutes.Use(BackendAuthMiddleware(*cfg))
+		backendAuthRoutes.POST("/api/session", currentsession.HandleCreateSession(*cfg, func() {
+			secondsRemaining := currentsession.GetCurrentSession().SessionEndTime.Sub(time.Now()).Seconds()
+			fmt.Println("Session created, starting timer for ", secondsRemaining, " seconds")
+			server.timer.SetDuration(time.Duration(secondsRemaining) * time.Second)
+			server.timer.Start(server.diconnectWebSocket)
+		}, func() {
+			server.diconnectWebSocket()
+		}))
+		backendAuthRoutes.GET("/api/session", currentsession.HandleGetSession(*cfg))
+		backendAuthRoutes.DELETE("/api/session", currentsession.HandleDeleteSession(*cfg, func() {
+			server.timer.Stop()
+			server.diconnectWebSocket()
+		}))
+	}
 
 	log.Fatal(r.Run(":" + cfg.PORT))
 }
 
-func AuthMiddleware() gin.HandlerFunc {
+func ClientAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if (!currentsession.GetCurrentSession().ValidateTokenHttp(c)) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+		c.Next()
+	}
+}
+
+func BackendAuthMiddleware(cfg config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if (c.Request.Header.Get("Authorization") != cfg.MASTER_SERVER_API_SECRET) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
@@ -221,13 +235,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
         return
     }
 	fmt.Println("Checked that there is no active connection")
-	if !currentsession.GetCurrentSession().IsActive() || !currentsession.GetCurrentSession().ValidateToken(r.Header.Get("Authorization")) {
-		log.Println("Unauthorized")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		s.wsConnMu.Unlock()
-		return
-	}
-	fmt.Println("Checked that session is active and token is valid")
 
     // Upgrade the connection
     conn, err := s.wsUpgrader.Upgrade(w, r, nil)

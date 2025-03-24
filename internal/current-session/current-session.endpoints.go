@@ -9,9 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func validateAuthorization(c *gin.Context, cfg config.Config) bool {
-	return c.Request.Header.Get("Authorization") == cfg.MASTER_SERVER_API_SECRET
-}
 
 type CreateSessionRequest struct {
 	Token string `json:"token"`
@@ -23,11 +20,6 @@ func HandleCreateSession(cfg config.Config, createdCb func(), overwrittenCb func
 		decoder := json.NewDecoder(c.Request.Body)
 		if err := decoder.Decode(&request); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
-			return
-		}
-
-		if !validateAuthorization(c, cfg) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
 
@@ -52,10 +44,6 @@ func HandleCreateSession(cfg config.Config, createdCb func(), overwrittenCb func
 
 func HandleGetSession(cfg config.Config) func(c *gin.Context) {
 	return func(c *gin.Context) {
-		if !validateAuthorization(c, cfg) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-			return
-		}
 
 		session := GetCurrentSession()
 		var res gin.H
@@ -70,10 +58,6 @@ func HandleGetSession(cfg config.Config) func(c *gin.Context) {
 
 func HandleDeleteSession(cfg config.Config, cb func()) func(c *gin.Context) {
 	return func(c *gin.Context) {
-		if !validateAuthorization(c, cfg) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-			return
-		}
 
 		session := GetCurrentSession()
 		isReallyReset := session.Reset()
