@@ -72,10 +72,3 @@ func HandleDeleteSession(cfg config.Config, cb func()) func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "Session has already been not active"})
 	}
 }
-
-func UserGetSessionMetadata() func(c *gin.Context) {
-	return func(c *gin.Context) {
-		session := GetCurrentSession()
-		c.JSON(http.StatusOK, gin.H{"sessionEndTime": session.SessionEndTime})
-	}
-}

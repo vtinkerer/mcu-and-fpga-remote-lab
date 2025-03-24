@@ -87,7 +87,10 @@ func main() {
 		clientAuthRoutes.POST("/api/scope/get-scope-data", analogdiscovery.HandleScopeGetData(device))
 		clientAuthRoutes.POST("/api/wavegen/write-config", analogdiscovery.HandleWavegenRun(device))
 		clientAuthRoutes.Any("/api/stream", cam.ServeHTTP)
-		clientAuthRoutes.GET("/api/my-session", currentsession.UserGetSessionMetadata())
+		clientAuthRoutes.GET("/api/my-session", func(c *gin.Context) {
+			cs := currentsession.GetCurrentSession()
+			c.JSON(http.StatusOK, gin.H{"sessionEndTime": cs.SessionEndTime, "deviceType": server.deviceType})
+		})
 		clientAuthRoutes.GET("/ws", func (c *gin.Context) {
 			server.handleWebSocket(c.Writer, c.Request)
 		})
