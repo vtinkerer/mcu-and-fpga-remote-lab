@@ -86,6 +86,7 @@ func main() {
 		authRoutes.POST("/api/scope/get-scope-data", analogdiscovery.HandleScopeGetData(device))
 		authRoutes.POST("/api/wavegen/write-config", analogdiscovery.HandleWavegenRun(device))
 		authRoutes.Any("/api/stream", cam.ServeHTTP)
+		authRoutes.GET("/api/my-session", currentsession.UserGetSessionMetadata())
 	}
 
 	r.POST("/api/session", currentsession.HandleCreateSession(*cfg, func() {
