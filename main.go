@@ -24,7 +24,6 @@ import (
 
 type Server struct {
     u        	*uart.UART
-	session  	*currentsession.CurrentSession
     wsUpgrader  websocket.Upgrader
     wsConn 		*websocket.Conn
     wsConnMu   	sync.Mutex
@@ -36,7 +35,6 @@ func NewServer() *Server {
 	u.Open()
     return &Server{
         u: u,
-		session: currentsession.GetCurrentSession(),
         wsUpgrader: websocket.Upgrader{
             CheckOrigin: func(r *http.Request) bool {
                 return true // Adjust based on your security needs
@@ -73,19 +71,25 @@ func main() {
 	}
 
 
-	r.POST("/api/firmware/fpga", handleFirmware(*cfg, true, server))
-	r.POST("/api/firmware/mcu", handleFirmware(*cfg, false, server))
-	r.POST("/api/write-pin", analogdiscovery.HandleWritePin(device))
-	r.POST("/api/wavegen/write-channel", analogdiscovery.HandleWavegenEnableChannel(device))
-	r.POST("/api/wavegen/write-function", analogdiscovery.HandleWavegenFunctionSet(device))
-	r.POST("/api/wavegen/write-amplitude", analogdiscovery.HandleWavegenAmplitudeSet(device))
-	r.POST("/api/wavegen/write-frequency", analogdiscovery.HandleWavegenFrequencySet(device))
-	r.POST("/api/wavegen/write-duty-cycle", analogdiscovery.HandleWavegenDutyCycleSet(device))
-	r.POST("/api/scope/get-scope-data", analogdiscovery.HandleScopeGetData(device))
-	r.POST("/api/wavegen/write-config", analogdiscovery.HandleWavegenRun(device))
-	r.Any("/api/stream", cam.ServeHTTP)
+	authRoutes := r.Group("")
+	{
+		authRoutes.Use(AuthMiddleware())
+		
+		authRoutes.POST("/api/firmware/fpga", handleFirmware(*cfg, true, server))
+		authRoutes.POST("/api/firmware/mcu", handleFirmware(*cfg, false, server))
+		authRoutes.POST("/api/write-pin", analogdiscovery.HandleWritePin(device))
+		authRoutes.POST("/api/wavegen/write-channel", analogdiscovery.HandleWavegenEnableChannel(device))
+		authRoutes.POST("/api/wavegen/write-function", analogdiscovery.HandleWavegenFunctionSet(device))
+		authRoutes.POST("/api/wavegen/write-amplitude", analogdiscovery.HandleWavegenAmplitudeSet(device))
+		authRoutes.POST("/api/wavegen/write-frequency", analogdiscovery.HandleWavegenFrequencySet(device))
+		authRoutes.POST("/api/wavegen/write-duty-cycle", analogdiscovery.HandleWavegenDutyCycleSet(device))
+		authRoutes.POST("/api/scope/get-scope-data", analogdiscovery.HandleScopeGetData(device))
+		authRoutes.POST("/api/wavegen/write-config", analogdiscovery.HandleWavegenRun(device))
+		authRoutes.Any("/api/stream", cam.ServeHTTP)
+	}
+
 	r.POST("/api/session", currentsession.HandleCreateSession(*cfg, func() {
-		secondsRemaining := server.session.SessionEndTime.Sub(time.Now()).Seconds()
+		secondsRemaining := currentsession.GetCurrentSession().SessionEndTime.Sub(time.Now()).Seconds()
 		fmt.Println("Session created, starting timer for ", secondsRemaining, " seconds")
 		server.timer.SetDuration(time.Duration(secondsRemaining) * time.Second)
 		server.timer.Start(server.diconnectWebSocket)
@@ -102,6 +106,16 @@ func main() {
 	})
 
 	log.Fatal(r.Run(":" + cfg.PORT))
+}
+
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if (!currentsession.GetCurrentSession().ValidateTokenHttp(c)) {
+			return
+		}
+
+		c.Next()
+	}
 }
 
 func (s *Server) diconnectWebSocket() {
@@ -206,7 +220,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
         return
     }
 	fmt.Println("Checked that there is no active connection")
-	if !s.session.IsActive() || !s.session.ValidateToken(r.Header.Get("Authorization")) {
+	if !currentsession.GetCurrentSession().IsActive() || !currentsession.GetCurrentSession().ValidateToken(r.Header.Get("Authorization")) {
 		log.Println("Unauthorized")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		s.wsConnMu.Unlock()
@@ -235,7 +249,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
         s.wsConnMu.Lock()
 		fmt.Println("Got lock to handle disconnect (clean up)")
 		s.timer.Stop()
-		s.session.Reset()
+		currentsession.GetCurrentSession().Reset()
         s.wsConn = nil
 		cancel()
 		conn.Close()
