@@ -71,7 +71,12 @@ func main() {
 		device.SetPinMode(outputPin, true)
 	}
 
-	r.Any("/api/stream", cam.ServeHTTP)
+	clientAuthQueryRoutes := r.Group("")
+	{
+		clientAuthQueryRoutes.Use(ClientAuthQueryMiddleware())
+
+		r.Any("/api/stream", cam.ServeHTTP)
+	}
 
 	clientAuthRoutes := r.Group("")
 	{
@@ -99,6 +104,7 @@ func main() {
 	backendAuthRoutes := r.Group("")
 	{
 		backendAuthRoutes.Use(BackendAuthMiddleware(*cfg))
+		
 		backendAuthRoutes.POST("/api/session", currentsession.HandleCreateSession(*cfg, func() {
 			secondsRemaining := currentsession.GetCurrentSession().SessionEndTime.Sub(time.Now()).Seconds()
 			fmt.Println("Session created, starting timer for ", secondsRemaining, " seconds")
@@ -141,9 +147,19 @@ func (s *Server) CheckDeviceType(cfg *config.Config) error {
 	return fmt.Errorf("No device detected: %w", err)
 }
 
+func ClientAuthQueryMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if (!currentsession.GetCurrentSession().ValidateTokenHttpQuery(c)) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+		c.Next()
+	}
+}
+
 func ClientAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if (!currentsession.GetCurrentSession().ValidateTokenHttp(c)) {
+		if (!currentsession.GetCurrentSession().ValidateTokenHttpHeader(c)) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}

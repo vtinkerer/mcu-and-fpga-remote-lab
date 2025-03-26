@@ -45,8 +45,12 @@ func (c *CurrentSession) ValidateToken(token string) bool {
 	return c.isActive && c.Token == token && time.Now().Before(c.SessionEndTime)
 }
 
-func (c *CurrentSession) ValidateTokenHttp(ctx *gin.Context) bool {
+func (c *CurrentSession) ValidateTokenHttpHeader(ctx *gin.Context) bool {
 	return c.ValidateToken(ctx.Request.Header.Get("Authorization"))
+}
+
+func (c *CurrentSession) ValidateTokenHttpQuery(ctx *gin.Context) bool {
+	return c.ValidateToken(ctx.Query("token"))
 }
 
 // Returns true if the session was overwritten
