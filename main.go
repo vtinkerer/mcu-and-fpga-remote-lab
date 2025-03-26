@@ -75,7 +75,7 @@ func main() {
 	{
 		clientAuthQueryRoutes.Use(ClientAuthQueryMiddleware())
 
-		r.Any("/api/stream", cam.ServeHTTP)
+		clientAuthQueryRoutes.Any("/api/stream", cam.ServeHTTP)
 	}
 
 	clientAuthRoutes := r.Group("")
@@ -104,7 +104,7 @@ func main() {
 	backendAuthRoutes := r.Group("")
 	{
 		backendAuthRoutes.Use(BackendAuthMiddleware(*cfg))
-		
+
 		backendAuthRoutes.POST("/api/session", currentsession.HandleCreateSession(*cfg, func() {
 			secondsRemaining := currentsession.GetCurrentSession().SessionEndTime.Sub(time.Now()).Seconds()
 			fmt.Println("Session created, starting timer for ", secondsRemaining, " seconds")
