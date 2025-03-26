@@ -71,6 +71,7 @@ func main() {
 		device.SetPinMode(outputPin, true)
 	}
 
+	r.Any("/api/stream", cam.ServeHTTP)
 
 	clientAuthRoutes := r.Group("")
 	{
@@ -86,7 +87,6 @@ func main() {
 		clientAuthRoutes.POST("/api/wavegen/write-duty-cycle", analogdiscovery.HandleWavegenDutyCycleSet(device))
 		clientAuthRoutes.POST("/api/scope/get-scope-data", analogdiscovery.HandleScopeGetData(device))
 		clientAuthRoutes.POST("/api/wavegen/write-config", analogdiscovery.HandleWavegenRun(device))
-		clientAuthRoutes.Any("/api/stream", cam.ServeHTTP)
 		clientAuthRoutes.GET("/api/my-session", func(c *gin.Context) {
 			cs := currentsession.GetCurrentSession()
 			c.JSON(http.StatusOK, gin.H{"sessionEndTime": cs.SessionEndTime, "deviceType": server.deviceType})
