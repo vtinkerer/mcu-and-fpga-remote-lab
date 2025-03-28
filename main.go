@@ -23,27 +23,27 @@ import (
 )
 
 type Server struct {
-    u        	*uart.UART
-    wsUpgrader  websocket.Upgrader
-    wsConn 		*websocket.Conn
-    wsConnMu   	sync.Mutex
-	timer 		*timer.Timer
-	deviceType  string
+	u          *uart.UART
+	wsUpgrader websocket.Upgrader
+	wsConn     *websocket.Conn
+	wsConnMu   sync.Mutex
+	timer      *timer.Timer
+	deviceType string
 }
 
 func NewServer() *Server {
 	u := uart.NewUART()
 	u.Open()
-    return &Server{
-        u: u,
-        wsUpgrader: websocket.Upgrader{
-            CheckOrigin: func(r *http.Request) bool {
-                return true // Adjust based on your security needs
-            },
-        },
+	return &Server{
+		u: u,
+		wsUpgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true // Adjust based on your security needs
+			},
+		},
 		wsConn: nil,
-		timer: timer.NewTimer(10 * time.Second, func() {}),
-    }
+		timer:  timer.NewTimer(10*time.Second, func() {}),
+	}
 }
 
 func main() {
@@ -76,6 +76,9 @@ func main() {
 		clientAuthQueryRoutes.Use(ClientAuthQueryMiddleware())
 
 		clientAuthQueryRoutes.Any("/api/stream", cam.ServeHTTP)
+		clientAuthQueryRoutes.GET("/ws", func(c *gin.Context) {
+			server.handleWebSocket(c.Writer, c.Request)
+		})
 	}
 
 	clientAuthRoutes := r.Group("")
@@ -95,9 +98,6 @@ func main() {
 		clientAuthRoutes.GET("/api/my-session", func(c *gin.Context) {
 			cs := currentsession.GetCurrentSession()
 			c.JSON(http.StatusOK, gin.H{"sessionEndTime": cs.SessionEndTime, "deviceType": server.deviceType})
-		})
-		clientAuthRoutes.GET("/ws", func (c *gin.Context) {
-			server.handleWebSocket(c.Writer, c.Request)
 		})
 	}
 
@@ -123,7 +123,7 @@ func main() {
 	// Check which device is connected:
 	err = server.CheckDeviceType(cfg)
 
-	if (err == nil) {
+	if err == nil {
 		log.Println("Found device: ", server.deviceType)
 		log.Fatal(r.Run(":" + cfg.PORT))
 	} else {
@@ -133,13 +133,13 @@ func main() {
 
 func (s *Server) CheckDeviceType(cfg *config.Config) error {
 	err := flashMCU(*cfg, filepath.Join("./example-firmware", "mcu.hex"), s)
-	if (err == nil) {
+	if err == nil {
 		s.deviceType = "mcu"
 		return nil
 	}
 
 	err = flashFPGA(*cfg, filepath.Join("./example-firmware", "fpga.svg"))
-	if (err == nil) {
+	if err == nil {
 		s.deviceType = "fpga"
 		return nil
 	}
@@ -149,7 +149,7 @@ func (s *Server) CheckDeviceType(cfg *config.Config) error {
 
 func ClientAuthQueryMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if (!currentsession.GetCurrentSession().ValidateTokenHttpQuery(c)) {
+		if !currentsession.GetCurrentSession().ValidateTokenHttpQuery(c) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
@@ -159,7 +159,7 @@ func ClientAuthQueryMiddleware() gin.HandlerFunc {
 
 func ClientAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if (!currentsession.GetCurrentSession().ValidateTokenHttpHeader(c)) {
+		if !currentsession.GetCurrentSession().ValidateTokenHttpHeader(c) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
@@ -169,7 +169,7 @@ func ClientAuthMiddleware() gin.HandlerFunc {
 
 func BackendAuthMiddleware(cfg config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if (c.Request.Header.Get("Authorization") != cfg.MASTER_SERVER_API_SECRET) {
+		if c.Request.Header.Get("Authorization") != cfg.MASTER_SERVER_API_SECRET {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
@@ -196,18 +196,20 @@ type WsMessage struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }
+
 // for FPGA and MCU program files
 const (
 	maxUploadSize = 10 * (10 << 20) // 100 MB
 	uploadPath    = "./uploads"
 )
+
 func (s *Server) handleWSToUART(conn *websocket.Conn) {
-    for {
-        _, message, err := conn.ReadMessage()
-        if err != nil {
-            log.Printf("WebSocket read error: %v", err)
-            return
-        }
+	for {
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("WebSocket read error: %v", err)
+			return
+		}
 
 		var wsMessage WsMessage
 		err = json.Unmarshal(message, &wsMessage)
@@ -215,16 +217,16 @@ func (s *Server) handleWSToUART(conn *websocket.Conn) {
 			log.Printf("Incoming from WS JSON unmarshal error: %v", err)
 		}
 
-        // Forward message to UART
-        if err := s.u.Write([]byte(wsMessage.Text)); err != nil {
-            log.Printf("UART write error: %v", err)
-        }
-    }
+		// Forward message to UART
+		if err := s.u.Write([]byte(wsMessage.Text)); err != nil {
+			log.Printf("UART write error: %v", err)
+		}
+	}
 }
 func (s *Server) handleUARTToWS(conn *websocket.Conn, ctx context.Context) {
-    buffer := make([]byte, 1024)
+	buffer := make([]byte, 1024)
 	logCounter := 50
-    for {
+	for {
 		select {
 		case <-ctx.Done():
 			fmt.Println("Exit UART-to-WS loop because of context cancellation")
@@ -236,8 +238,8 @@ func (s *Server) handleUARTToWS(conn *websocket.Conn, ctx context.Context) {
 				return
 			}
 			// Better to sleep than to keep using CPU
-			if (n == 0) {
-				logCounter-- 
+			if n == 0 {
+				logCounter--
 				if logCounter == 0 {
 					logCounter = 50
 					fmt.Println("No data from UART (Read 0 bytes)")
@@ -265,56 +267,56 @@ func (s *Server) handleUARTToWS(conn *websocket.Conn, ctx context.Context) {
 				return
 			}
 		}
-    }
+	}
 }
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-    // Check if there's already an active connection
+	// Check if there's already an active connection
 	fmt.Println("Trying to lock wsConnMu")
-    s.wsConnMu.Lock()
+	s.wsConnMu.Lock()
 	fmt.Println("Handle WebSocket called")
-    if s.wsConn != nil {
+	if s.wsConn != nil {
 		log.Println("Only one WebSocket connection allowed at a time")
 		http.Error(w, "Only one WebSocket connection allowed at a time", http.StatusConflict)
-        s.wsConnMu.Unlock()
-        return
-    }
+		s.wsConnMu.Unlock()
+		return
+	}
 	fmt.Println("Checked that there is no active connection")
 
-    // Upgrade the connection
-    conn, err := s.wsUpgrader.Upgrade(w, r, nil)
-    if err != nil {
-        s.wsConnMu.Unlock()
-        log.Printf("WebSocket upgrade failed: %v", err)
-        return
-    }
+	// Upgrade the connection
+	conn, err := s.wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		s.wsConnMu.Unlock()
+		log.Printf("WebSocket upgrade failed: %v", err)
+		return
+	}
 	fmt.Println("Upgraded WebSocket connection")
 
-    // Store the connection
-    s.wsConn = conn
-    s.wsConnMu.Unlock()
+	// Store the connection
+	s.wsConn = conn
+	s.wsConnMu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-    // Clean up on disconnect
-    defer func() {
+	// Clean up on disconnect
+	defer func() {
 		fmt.Println("Trying to get lock to handle disconnect (clean up)")
-        s.wsConnMu.Lock()
+		s.wsConnMu.Lock()
 		fmt.Println("Got lock to handle disconnect (clean up)")
 		s.timer.Stop()
 		currentsession.GetCurrentSession().Reset()
-        s.wsConn = nil
+		s.wsConn = nil
 		cancel()
 		conn.Close()
 		fmt.Println("Disconnected WebSocket (clean up)")
-        s.wsConnMu.Unlock()
+		s.wsConnMu.Unlock()
 		fmt.Println("Released lock to handle disconnect (clean up)")
-    }()
+	}()
 
-    fmt.Println("New WebSocket connection established")
+	fmt.Println("New WebSocket connection established")
 
-    // Start message handling
-    go s.handleUARTToWS(conn, ctx)
-    s.handleWSToUART(conn)
+	// Start message handling
+	go s.handleUARTToWS(conn, ctx)
+	s.handleWSToUART(conn)
 }
 
 func flashFPGA(cfg config.Config, fp string) error {
