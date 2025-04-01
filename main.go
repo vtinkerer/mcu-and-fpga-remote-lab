@@ -186,10 +186,18 @@ func (s *Server) diconnectWebSocket() {
 		log.Printf("JSON marshal error: %v", err)
 		return
 	}
+	
+	s.wsConnMu.Lock()
+	defer s.wsConnMu.Unlock()
+	
 	if s.wsConn != nil {
 		s.wsConn.WriteMessage(websocket.TextMessage, json)
 		s.wsConn.Close()
+		s.wsConn = nil
 	}
+	
+	// Immediately reset the session when forced disconnect occurs
+	currentsession.GetCurrentSession().Reset()
 }
 
 type WsMessage struct {
@@ -274,6 +282,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Trying to lock wsConnMu")
 	s.wsConnMu.Lock()
 	fmt.Println("Handle WebSocket called")
+	
+	// Stop any pending session reset timer
+	s.timer.Stop()
+	
+	// Check for active connection
 	if s.wsConn != nil {
 		log.Println("Only one WebSocket connection allowed at a time")
 		http.Error(w, "Only one WebSocket connection allowed at a time", http.StatusConflict)
@@ -300,19 +313,25 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Clean up on disconnect
+	// Clean up on disconnect - but don't reset session immediately
 	defer func() {
-		fmt.Println("Trying to get lock to handle disconnect (clean up)")
+		fmt.Println("WebSocket disconnected, beginning cleanup")
 		s.wsConnMu.Lock()
-		fmt.Println("Got lock to handle disconnect (clean up)")
-		s.timer.Stop()
-		currentsession.GetCurrentSession().Reset()
-		s.wsConn = nil
+		
+		// Cleanly close and clear the connection
+		if s.wsConn != nil {
+			s.wsConn.Close()
+			s.wsConn = nil
+		}
+		
+		// Cancel the context to stop the UART reading goroutine
 		cancel()
-		conn.Close()
-		fmt.Println("Disconnected WebSocket (clean up)")
+		
+		fmt.Println("Starting reconnection window")
+		// Don't reset the session immediately, schedule it after 30 seconds
+		s.scheduleSessionReset()
+		
 		s.wsConnMu.Unlock()
-		fmt.Println("Released lock to handle disconnect (clean up)")
 	}()
 
 	fmt.Println("New WebSocket connection established")
@@ -379,4 +398,22 @@ func handleFirmware(cfg config.Config, isFPGA bool, server *Server) func(c *gin.
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "Firmware flashed successfully"})
 	}
+}
+
+func (s *Server) scheduleSessionReset() {
+	fmt.Println("Starting 6-second reconnection window")
+	s.timer.SetDuration(6 * time.Second)
+	s.timer.Start(func() {
+		fmt.Println("Reconnection window expired, resetting session")
+		s.wsConnMu.Lock()
+		defer s.wsConnMu.Unlock()
+		
+		// Only reset if there is no active connection
+		if s.wsConn == nil {
+			fmt.Println("No reconnection occurred, resetting session")
+			currentsession.GetCurrentSession().Reset()
+		} else {
+			fmt.Println("Connection is active, not resetting session")
+		}
+	})
 }
