@@ -291,6 +291,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Println("Upgraded WebSocket connection")
 
+	conn.SetReadDeadline(time.Now().Add(30 * time.Minute))
+	conn.SetWriteDeadline(time.Now().Add(30 * time.Minute))
+
 	// Store the connection
 	s.wsConn = conn
 	s.wsConnMu.Unlock()
