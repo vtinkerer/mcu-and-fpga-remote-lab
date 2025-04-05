@@ -7,6 +7,7 @@ import (
 	"digitrans-lab-go/internal/config"
 	currentsession "digitrans-lab-go/internal/current-session"
 	"digitrans-lab-go/internal/fpga"
+	"digitrans-lab-go/internal/potentiometer"
 	stm32flash "digitrans-lab-go/internal/stm32-flash"
 	"digitrans-lab-go/internal/timer"
 	"digitrans-lab-go/internal/uart"
@@ -71,6 +72,11 @@ func main() {
 		device.SetPinMode(outputPin, true)
 	}
 
+	pot, err := potentiometer.NewPotentiometer()
+	if err != nil {
+		log.Fatalf("Error creating Potentiometer: %v", err)
+	}
+
 	clientAuthQueryRoutes := r.Group("")
 	{
 		clientAuthQueryRoutes.Use(ClientAuthQueryMiddleware())
@@ -99,6 +105,8 @@ func main() {
 			cs := currentsession.GetCurrentSession()
 			c.JSON(http.StatusOK, gin.H{"sessionEndTime": cs.SessionEndTime, "deviceType": server.deviceType})
 		})
+		clientAuthRoutes.POST("/api/potentiometer/set-resistance", potentiometer.HandlePotentiometerSetResistance(pot))
+		clientAuthRoutes.GET("/api/potentiometer/get-resistance", potentiometer.HandlePotentiometerGetResistance(pot))
 	}
 
 	backendAuthRoutes := r.Group("")

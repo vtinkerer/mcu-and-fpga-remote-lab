@@ -36,4 +36,5 @@ require (
 	golang.org/x/text v0.19.0 // indirect
 	google.golang.org/protobuf v1.35.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	periph.io/x/conn/v3 v3.7.2 // indirect
 )
