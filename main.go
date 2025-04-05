@@ -105,8 +105,8 @@ func main() {
 			cs := currentsession.GetCurrentSession()
 			c.JSON(http.StatusOK, gin.H{"sessionEndTime": cs.SessionEndTime, "deviceType": server.deviceType})
 		})
-		clientAuthRoutes.POST("/api/potentiometer/set-resistance", potentiometer.HandlePotentiometerSetResistance(pot))
-		clientAuthRoutes.GET("/api/potentiometer/get-resistance", potentiometer.HandlePotentiometerGetResistance(pot))
+		clientAuthRoutes.POST("/api/potentiometer/resistance", potentiometer.HandlePotentiometerSetResistance(pot))
+		clientAuthRoutes.GET("/api/potentiometer/resistance", potentiometer.HandlePotentiometerGetResistance(pot))
 	}
 
 	backendAuthRoutes := r.Group("")
