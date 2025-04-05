@@ -32,7 +32,7 @@ func Flash(filePath string, resetPin int, boot0Pin int) error {
 	}
 
 	// Exit bootloader
-	if err := exitBootloader(resetPin, boot0Pin); err != nil {
+	if err := Reset(resetPin, boot0Pin); err != nil {
 		return fmt.Errorf("[stm32-flash] Failed to exit bootloader: %w", err)
 	}
 
@@ -48,7 +48,7 @@ func runFlash(filePath string, resetPin, boot0Pin int, attempts int) error {
 	if err := cmd.Run(); err != nil {
 		fmt.Println("Error flashing STM32:", err)
 		if attempts == 0 {
-			err := exitBootloader(resetPin, boot0Pin)
+			err := Reset(resetPin, boot0Pin)
 			if err != nil {
 				log.Println("Failed to exit bootloader during the failed bootloader exit:", err)
 			}
@@ -84,7 +84,7 @@ func enterBootloader(resetPin, boot0Pin int) error {
 	return nil
 }
 
-func exitBootloader(resetPin, boot0Pin int) error {
+func Reset(resetPin, boot0Pin int) error {
 	// BOOT0 DOWN
 	if err := runCommand("pinctrl", "set", strconv.Itoa(boot0Pin), "op", "dl"); err != nil {
 		return fmt.Errorf("failed to set up boot0 pin: %w", err)
