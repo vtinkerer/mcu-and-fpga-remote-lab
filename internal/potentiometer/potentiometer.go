@@ -12,7 +12,7 @@ type Potentiometer struct {
 
 func NewPotentiometer() (*Potentiometer, error) {
 	// Find the right config here
-	driver, err := New("1", addrGND)
+	driver, err := newDriver("1", addrGND)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +34,7 @@ func (p *Potentiometer) SetResistancePercentage(percentage uint8) (uint8, error)
 
 	tap := calculateClosestTapForResistancePercentage(percentage)
 	p.tapSelected = tap
-	if err := p.driver.SetWiper(tap); err != nil {
+	if err := p.driver.setWiper(tap); err != nil {
 		fmt.Println("error setting wiper: ", err)
 		return 0, err
 	}

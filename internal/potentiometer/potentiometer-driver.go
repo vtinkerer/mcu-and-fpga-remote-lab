@@ -45,7 +45,7 @@ type driverMAX5395 struct {
 }
 
 // New creates a new MAX5395 device using the provided I2C bus and address
-func New(busName string, addr uint16) (*driverMAX5395, error) {
+func newDriver(busName string, addr uint16) (*driverMAX5395, error) {
 	// Open the I2C bus
 	bus, err := i2creg.Open(busName)
 	if err != nil {
@@ -62,7 +62,7 @@ func New(busName string, addr uint16) (*driverMAX5395, error) {
 // SetWiper sets the wiper position (0-255)
 // 0 = position closest to L
 // 255 = position closest to H
-func (d *driverMAX5395) SetWiper(position uint8) error {
+func (d *driverMAX5395) setWiper(position uint8) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	
@@ -70,7 +70,7 @@ func (d *driverMAX5395) SetWiper(position uint8) error {
 }
 
 // GetWiper reads the current wiper position (0-255)
-func (d *driverMAX5395) GetWiper() (uint8, error) {
+func (d *driverMAX5395) getWiper() (uint8, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	
@@ -101,7 +101,7 @@ func (d *driverMAX5395) Reset() error {
 // ClearShutdown removes any existing shutdown condition
 // This connects all potentiometer terminals and returns the wiper to
 // the value stored in the wiper register
-func (d *driverMAX5395) ClearShutdown() error {
+func (d *driverMAX5395) clearShutdown() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	
@@ -109,7 +109,7 @@ func (d *driverMAX5395) ClearShutdown() error {
 }
 
 // ShutdownH opens the H terminal with wiper at the specified position
-func (d *driverMAX5395) ShutdownH(position string) error {
+func (d *driverMAX5395) shutdownH(position string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	
@@ -131,7 +131,7 @@ func (d *driverMAX5395) ShutdownH(position string) error {
 }
 
 // ShutdownL opens the L terminal with wiper at the specified position
-func (d *driverMAX5395) ShutdownL(position string) error {
+func (d *driverMAX5395) shutdownL(position string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	
@@ -153,7 +153,7 @@ func (d *driverMAX5395) ShutdownL(position string) error {
 }
 
 // ShutdownW opens the W terminal
-func (d *driverMAX5395) ShutdownW() error {
+func (d *driverMAX5395) shutdownW() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	
@@ -162,7 +162,7 @@ func (d *driverMAX5395) ShutdownW() error {
 
 // EnableChargePump enables the internal charge pump
 // This allows operation down to 1.7V and H/W/L voltages up to 5.25V
-func (d *driverMAX5395) EnableChargePump() error {
+func (d *driverMAX5395) enableChargePump() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	
@@ -171,7 +171,7 @@ func (d *driverMAX5395) EnableChargePump() error {
 
 // DisableChargePump disables the internal charge pump for low power operation
 // This limits minimum supply voltage to 2.6V and H/W/L voltages to VDD+0.3V
-func (d *driverMAX5395) DisableChargePump() error {
+func (d *driverMAX5395) disableChargePump() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	
@@ -188,7 +188,7 @@ type Configuration struct {
 }
 
 // GetConfiguration reads the current device configuration
-func (d *driverMAX5395) GetConfiguration() (*Configuration, error) {
+func (d *driverMAX5395) getConfiguration() (*Configuration, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	
