@@ -103,15 +103,7 @@ func main() {
 		})
 		clientAuthRoutes.POST("/api/potentiometer/resistance", potentiometer.HandlePotentiometerSetResistancePercentage(pot))
 		clientAuthRoutes.GET("/api/potentiometer/resistance", potentiometer.HandlePotentiometerGetResistancePercentage(pot))
-		clientAuthRoutes.POST("/api/mcu/reset", func(c *gin.Context) {
-			err := stm32flash.Reset(cfg.RESET_PIN, cfg.BOOT0_PIN)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				log.Printf("Error resetting STM32: %v", err)
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{"message": "STM32 reset"})
-		})
+		clientAuthRoutes.POST("/api/mcu/reset", stm32flash.HandleSTM32Reset(*cfg))
 		clientAuthRoutes.POST("/api/uart/speed", uart.HandleUartChangeSpeed(server.u))
 	}
 
