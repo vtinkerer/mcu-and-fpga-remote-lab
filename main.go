@@ -37,11 +37,7 @@ func NewServer() *Server {
 	u.Open()
 	return &Server{
 		u: u,
-		wsUpgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Adjust based on your security needs
-			},
-		},
+		wsUpgrader: websocket.Upgrader{},
 		wsConn: nil,
 		timer:  timer.NewTimer(10*time.Second, func() {}),
 	}
@@ -116,6 +112,7 @@ func main() {
 			}
 			c.JSON(http.StatusOK, gin.H{"message": "STM32 reset"})
 		})
+		clientAuthRoutes.POST("/api/uart/speed", uart.HandleUartChangeSpeed(server.u))
 	}
 
 	backendAuthRoutes := r.Group("")

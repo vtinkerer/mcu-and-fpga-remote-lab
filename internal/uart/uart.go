@@ -107,3 +107,18 @@ func (u *UART) Write(data []byte) error {
     fmt.Println("Data written to UART: ", string(data))
     return err
 }
+func (u *UART) ChangeSpeed(speed int) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	
+	if !u.isActive {
+		return nil
+	}
+
+    if err := u.port.SetMode(&serial.Mode{
+		BaudRate: speed,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
