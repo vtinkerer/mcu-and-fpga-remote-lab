@@ -105,8 +105,8 @@ func main() {
 			cs := currentsession.GetCurrentSession()
 			c.JSON(http.StatusOK, gin.H{"sessionEndTime": cs.SessionEndTime, "deviceType": server.deviceType})
 		})
-		clientAuthRoutes.POST("/api/potentiometer/resistance", potentiometer.HandlePotentiometerSetResistance(pot))
-		clientAuthRoutes.GET("/api/potentiometer/resistance", potentiometer.HandlePotentiometerGetResistance(pot))
+		clientAuthRoutes.POST("/api/potentiometer/resistance", potentiometer.HandlePotentiometerSetResistancePercentage(pot))
+		clientAuthRoutes.GET("/api/potentiometer/resistance", potentiometer.HandlePotentiometerGetResistancePercentage(pot))
 		clientAuthRoutes.POST("/api/mcu/reset", func(c *gin.Context) {
 			err := stm32flash.Reset(cfg.RESET_PIN, cfg.BOOT0_PIN)
 			if err != nil {

@@ -23,30 +23,34 @@ func NewPotentiometer() (*Potentiometer, error) {
 	}, nil
 }
 
-func (p *Potentiometer) SetResistance(resistance float64) (float64, error) {
-	tap := calculateClosestTapForResistance(resistance)
+func (p *Potentiometer) SetResistancePercentage(percentage uint8) (uint8, error) {
+	// Clamp the percentage to the range 0-100
+	if percentage > 100 {
+		percentage = 100
+	}
+	if percentage < 0 {
+		percentage = 0
+	}
+
+	tap := calculateClosestTapForResistancePercentage(percentage)
 	p.tapSelected = tap
 	if err := p.driver.SetWiper(tap); err != nil {
 		fmt.Println("error setting wiper: ", err)
 		return 0, err
 	}
-	return calculateResistanceForTap(tap), nil
+	return calculateResistancePercentageForTap(tap), nil
 }
 
-func (p *Potentiometer) GetResistance() float64 {
-	return calculateResistanceForTap(p.tapSelected)
+func (p *Potentiometer) GetResistancePercentage() uint8 {
+	return calculateResistancePercentageForTap(p.tapSelected)
 }
 
-func calculateClosestTapForResistance(resistance float64) uint8 {
-	taps := float64(resistance) / float64(step)
-	fmt.Println("calculated taps: ", taps, "for resistance: ", resistance)
-	if taps < 0 || taps > 255 {
-		fmt.Println("taps out of range")
-		return 0
-	}
-	return uint8(taps)
+func calculateClosestTapForResistancePercentage(percentage uint8) uint8 {
+	taps := uint8(255 * percentage / 100)
+	fmt.Println("calculated taps: ", taps, "for percentage: ", percentage)
+	return taps
 }
 
-func calculateResistanceForTap(tap uint8) float64 {
-	return float64(tap) * float64(step)
+func calculateResistancePercentageForTap(tap uint8) uint8 {
+	return uint8(tap * 100 / 255)
 }

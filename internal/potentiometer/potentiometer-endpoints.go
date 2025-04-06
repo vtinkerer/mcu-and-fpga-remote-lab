@@ -8,10 +8,10 @@ import (
 )
 
 type PostPotentiometerSetResistanceRequest struct {
-	Resistance float64 `json:"resistance"`
+	Percentage uint8 `json:"percentage"`
 }
 // Can be used throughout the session to try to set the resistance and get the real (actual) resistance in response
-func HandlePotentiometerSetResistance(device *Potentiometer) func(c *gin.Context) {
+func HandlePotentiometerSetResistancePercentage(device *Potentiometer) func(c *gin.Context) {
 	return func(c *gin.Context) {
 
 		var req PostPotentiometerSetResistanceRequest
@@ -21,20 +21,20 @@ func HandlePotentiometerSetResistance(device *Potentiometer) func(c *gin.Context
 			return
 		}
 
-		resistance, err := device.SetResistance(req.Resistance)
+		percentage, err := device.SetResistancePercentage(req.Percentage)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to set resistance"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"resistance": resistance})
+		c.JSON(http.StatusOK, gin.H{"percentage": percentage})
 	}
 }
 
 // Can be used at the very beginning of the session to get the initial resistance
-func HandlePotentiometerGetResistance(device *Potentiometer) func(c *gin.Context) {
+func HandlePotentiometerGetResistancePercentage(device *Potentiometer) func(c *gin.Context) {
 	return func(c *gin.Context) {
-		resistance := device.GetResistance()
-		c.JSON(http.StatusOK, gin.H{"resistance": resistance})
+		percentage := device.GetResistancePercentage()
+		c.JSON(http.StatusOK, gin.H{"percentage": percentage})
 	}
 }
 
