@@ -143,8 +143,14 @@ func (s *Server) CheckDeviceType(cfg *config.Config) error {
 		s.deviceType = "mcu"
 		return nil
 	}
+	fmt.Println("No old MCU found because of error: ", err)
 
-	fmt.Println("No MCU found because of error: ", err)
+	err = flashMCU(*cfg, filepath.Join("./example-firmware", "new-mcu.hex"), s)
+	if err == nil {
+		s.deviceType = "mcu"
+		return nil
+	}
+	fmt.Println("No new MCU found because of error: ", err)
 
 	err = flashFPGA(*cfg, filepath.Join("./example-firmware", "fpga.svg"))
 	if err == nil {
