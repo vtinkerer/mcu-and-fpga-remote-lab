@@ -144,6 +144,8 @@ func (s *Server) CheckDeviceType(cfg *config.Config) error {
 		return nil
 	}
 
+	fmt.Println("No MCU found because of error: ", err)
+
 	err = flashFPGA(*cfg, filepath.Join("./example-firmware", "fpga.svg"))
 	if err == nil {
 		s.deviceType = "fpga"
