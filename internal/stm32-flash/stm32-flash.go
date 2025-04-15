@@ -48,8 +48,8 @@ func runFlash(filePath string, resetPin, boot0Pin int, attempts int) error {
 	if err := cmd.Run(); err != nil {
 		fmt.Println("Error flashing STM32:", err)
 		if attempts == 0 {
-			err := Reset(resetPin, boot0Pin)
-			if err != nil {
+			errReset := Reset(resetPin, boot0Pin)
+			if errReset != nil {
 				log.Println("Failed to exit bootloader during the failed bootloader exit:", err)
 			}
 			return fmt.Errorf("failed to flash after many attempts: %w", err)
