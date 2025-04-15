@@ -12,7 +12,7 @@ type Potentiometer struct {
 
 func NewPotentiometer() (*Potentiometer, error) {
 	// Find the right config here
-	driver, err := newDriver("1", addrGND)
+	driver, err := newDriver("/dev/i2c-20", addrGND)
 	if err != nil {
 		return nil, err
 	}

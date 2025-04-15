@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"sync"
 
+	"periph.io/x/conn/v3/driver/driverreg"
 	"periph.io/x/conn/v3/i2c"
 	"periph.io/x/conn/v3/i2c/i2creg"
+	"periph.io/x/host/v3"
 )
 
 // DeviceAddress represents the available I2C addresses for MAX5395
@@ -46,6 +48,20 @@ type driverMAX5395 struct {
 
 // New creates a new MAX5395 device using the provided I2C bus and address
 func newDriver(busName string, addr uint16) (*driverMAX5395, error) {
+
+	_, err := host.Init()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize host: %v", err)
+	}
+
+	fmt.Println("Host initialized")
+
+	if _, err := driverreg.Init(); err != nil {
+		return nil, fmt.Errorf("failed to initialize driver registry: %v", err)
+	}
+
+	fmt.Println("Driver registry initialized")
+
 	// Open the I2C bus
 	bus, err := i2creg.Open(busName)
 	if err != nil {
