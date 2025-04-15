@@ -1,11 +1,11 @@
 package stm32flash
 
 import (
+	"digitrans-lab-go/internal/gpio"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -61,21 +61,21 @@ func runFlash(filePath string, resetPin, boot0Pin int, attempts int) error {
 
 func enterBootloader(resetPin, boot0Pin int) error {
 	// BOOT0 UP
-	if err := runCommand("pinctrl", "set", strconv.Itoa(boot0Pin), "op", "dh"); err != nil {
+	if err := gpio.WritePin(boot0Pin, 1); err != nil {
 		return fmt.Errorf("failed to set up boot0 pin: %w", err)
 	}
 
 	time.Sleep(10 * time.Millisecond)
 
 	// NRST DOWN
-	if err := runCommand("pinctrl", "set", strconv.Itoa(resetPin), "op", "dl"); err != nil {
+	if err := gpio.WritePin(resetPin, 0); err != nil {
 		return fmt.Errorf("failed to set up reset pin: %w", err)
 	}
 
 	time.Sleep(10 * time.Millisecond)
 
 	// NRST UP
-	if err := runCommand("pinctrl", "set", strconv.Itoa(resetPin), "op", "dh"); err != nil {
+	if err := gpio.WritePin(resetPin, 1); err != nil {
 		return fmt.Errorf("failed to set up reset pin: %w", err)
 	}
 
@@ -86,21 +86,21 @@ func enterBootloader(resetPin, boot0Pin int) error {
 
 func Reset(resetPin, boot0Pin int) error {
 	// BOOT0 DOWN
-	if err := runCommand("pinctrl", "set", strconv.Itoa(boot0Pin), "op", "dl"); err != nil {
+	if err := gpio.WritePin(boot0Pin, 0); err != nil {
 		return fmt.Errorf("failed to set up boot0 pin: %w", err)
 	}
 
 	time.Sleep(10 * time.Millisecond)
 
 	// NRST DOWN
-	if err := runCommand("pinctrl", "set", strconv.Itoa(resetPin), "op", "dl"); err != nil {
+	if err := gpio.WritePin(resetPin, 0); err != nil {
 		return fmt.Errorf("failed to set up reset pin: %w", err)
 	}
 
 	time.Sleep(10 * time.Millisecond)
 
 	// NRST UP
-	if err := runCommand("pinctrl", "set", strconv.Itoa(resetPin), "op", "dh"); err != nil {
+	if err := gpio.WritePin(resetPin, 1); err != nil {
 		return fmt.Errorf("failed to set up reset pin: %w", err)
 	}
 
@@ -109,9 +109,3 @@ func Reset(resetPin, boot0Pin int) error {
 	return nil
 }
 
-func runCommand(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
