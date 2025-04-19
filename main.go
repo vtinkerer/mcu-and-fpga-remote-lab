@@ -366,7 +366,7 @@ func flashMCU(cfg config.Config, fp string, server *Server) error {
 	server.u.Close()
 	defer server.u.Reset()
 	fmt.Println("Flashing STM32")
-	err := stm32flash.Flash(fp, cfg.RESET_PIN, cfg.BOOT0_PIN)
+	err := stm32flash.Flash(fp)
 	return err
 }
 
