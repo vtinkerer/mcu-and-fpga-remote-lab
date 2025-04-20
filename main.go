@@ -8,6 +8,7 @@ import (
 	currentsession "digitrans-lab-go/internal/current-session"
 	"digitrans-lab-go/internal/fpga"
 	"digitrans-lab-go/internal/multiplexer"
+	pcbswitch "digitrans-lab-go/internal/pcb-switch"
 	"digitrans-lab-go/internal/potentiometer"
 	stm32flash "digitrans-lab-go/internal/stm32-flash"
 	"digitrans-lab-go/internal/timer"
@@ -76,6 +77,8 @@ func main() {
 
 	mux := multiplexer.NewMultiplexerModule(cfg.MULTIPLEXER_A0_1, cfg.MULTIPLEXER_A0_2, cfg.MULTIPLEXER_A1_1, cfg.MULTIPLEXER_A1_2)
 
+	switcher := pcbswitch.NewPCBSwitch(cfg.POWER_ON_PIN)
+
 	clientAuthQueryRoutes := r.Group("")
 	{
 		clientAuthQueryRoutes.Use(ClientAuthQueryMiddleware())
@@ -120,7 +123,11 @@ func main() {
 			secondsRemaining := currentsession.GetCurrentSession().SessionEndTime.Sub(time.Now()).Seconds()
 			fmt.Println("Session created, starting timer for ", secondsRemaining, " seconds")
 			server.timer.SetDuration(time.Duration(secondsRemaining) * time.Second)
-			server.timer.Start(server.diconnectWebSocket)
+			server.timer.Start(func() {
+				server.diconnectWebSocket()
+				switcher.PowerOff()
+			})
+			switcher.Reset()
 		}, func() {
 			server.diconnectWebSocket()
 		}))
@@ -128,6 +135,7 @@ func main() {
 		backendAuthRoutes.DELETE("/api/session", currentsession.HandleDeleteSession(*cfg, func() {
 			server.timer.Stop()
 			server.diconnectWebSocket()
+			switcher.PowerOff()
 		}))
 	}
 

@@ -21,6 +21,7 @@ type Config struct {
 	MULTIPLEXER_A0_2 int
 	MULTIPLEXER_A1_1 int
 	MULTIPLEXER_A1_2 int
+	POWER_ON_PIN int
 }
 
 func LoadConfig() (*Config, error) {
@@ -105,6 +106,12 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("Error parsing MULTIPLEXER_A1_2: %w", err)
 	}
 	config.MULTIPLEXER_A1_2 = MULTIPLEXER_A1_2
+
+	POWER_ON_PIN, err := strconv.Atoi(os.Getenv("POWER_ON_PIN"))
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing POWER_ON_PIN: %w", err)
+	}
+	config.POWER_ON_PIN = POWER_ON_PIN
 
 	return config, nil
 }
