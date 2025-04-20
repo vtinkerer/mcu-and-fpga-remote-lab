@@ -348,7 +348,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		cancel()
 		
 		fmt.Println("Starting reconnection window")
-		// Don't reset the session immediately, schedule it after 30 seconds
+		// Don't reset the session immediately, schedule it after 6 seconds
 		s.scheduleSessionReset()
 		
 		s.wsConnMu.Unlock()
