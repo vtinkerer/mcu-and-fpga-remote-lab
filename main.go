@@ -7,6 +7,7 @@ import (
 	"digitrans-lab-go/internal/config"
 	currentsession "digitrans-lab-go/internal/current-session"
 	"digitrans-lab-go/internal/fpga"
+	"digitrans-lab-go/internal/multiplexer"
 	"digitrans-lab-go/internal/potentiometer"
 	stm32flash "digitrans-lab-go/internal/stm32-flash"
 	"digitrans-lab-go/internal/timer"
@@ -73,6 +74,8 @@ func main() {
 		log.Fatalf("Error creating Potentiometer: %v", err)
 	}
 
+	mux := multiplexer.NewMultiplexerModule(cfg.MULTIPLEXER_A0_1, cfg.MULTIPLEXER_A0_2, cfg.MULTIPLEXER_A1_1, cfg.MULTIPLEXER_A1_2)
+
 	clientAuthQueryRoutes := r.Group("")
 	{
 		clientAuthQueryRoutes.Use(ClientAuthQueryMiddleware())
@@ -105,6 +108,8 @@ func main() {
 		clientAuthRoutes.GET("/api/potentiometer/resistance", potentiometer.HandlePotentiometerGetResistancePercentage(pot))
 		clientAuthRoutes.POST("/api/mcu/reset", stm32flash.HandleSTM32Reset(*cfg))
 		clientAuthRoutes.POST("/api/uart/speed", uart.HandleUartChangeSpeed(server.u))
+		clientAuthRoutes.POST("/api/multiplexer", multiplexer.HandleSelectInputChannel(mux))
+		clientAuthRoutes.GET("/api/multiplexer", multiplexer.HandleGetInputChannel(mux))
 	}
 
 	backendAuthRoutes := r.Group("")

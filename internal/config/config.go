@@ -17,6 +17,10 @@ type Config struct {
 	TCK int
 	TDO int
 	MASTER_SERVER_API_SECRET string
+	MULTIPLEXER_A0_1 int
+	MULTIPLEXER_A0_2 int
+	MULTIPLEXER_A1_1 int
+	MULTIPLEXER_A1_2 int
 }
 
 func LoadConfig() (*Config, error) {
@@ -77,6 +81,30 @@ func LoadConfig() (*Config, error) {
 	if config.MASTER_SERVER_API_SECRET == "" {
 		return nil, fmt.Errorf("MASTER_SERVER_API_SECRET is empty")
 	}
+
+	MULTIPLEXER_A0_1, err := strconv.Atoi(os.Getenv("MULTIPLEXER_A0_1"))
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing MULTIPLEXER_A0_1: %w", err)
+	}
+	config.MULTIPLEXER_A0_1 = MULTIPLEXER_A0_1
+
+	MULTIPLEXER_A0_2, err := strconv.Atoi(os.Getenv("MULTIPLEXER_A0_2"))
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing MULTIPLEXER_A0_2: %w", err)
+	}
+	config.MULTIPLEXER_A0_2 = MULTIPLEXER_A0_2
+
+	MULTIPLEXER_A1_1, err := strconv.Atoi(os.Getenv("MULTIPLEXER_A1_1"))
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing MULTIPLEXER_A1_1: %w", err)
+	}
+	config.MULTIPLEXER_A1_1 = MULTIPLEXER_A1_1
+
+	MULTIPLEXER_A1_2, err := strconv.Atoi(os.Getenv("MULTIPLEXER_A1_2"))
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing MULTIPLEXER_A1_2: %w", err)
+	}
+	config.MULTIPLEXER_A1_2 = MULTIPLEXER_A1_2
 
 	return config, nil
 }
