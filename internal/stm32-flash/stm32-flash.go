@@ -23,7 +23,6 @@ func Flash(filePath string) error {
 		return fmt.Errorf("flash failed: %s", result)
 	}
 	fmt.Println("Flash successful")
-	fmt.Println("Resetting device")
 
 	return nil
 }
