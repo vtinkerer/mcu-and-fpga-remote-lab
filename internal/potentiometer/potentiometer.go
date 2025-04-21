@@ -23,7 +23,7 @@ func NewPotentiometer() (*Potentiometer, error) {
 	}, nil
 }
 
-func (p *Potentiometer) SetResistancePercentage(percentage int) (uint8, error) {
+func (p *Potentiometer) SetResistancePercentage(percentage int) (int, error) {
 	// Clamp the percentage to the range 0-100
 	if percentage > 100 {
 		percentage = 100
@@ -41,7 +41,7 @@ func (p *Potentiometer) SetResistancePercentage(percentage int) (uint8, error) {
 	return calculateResistancePercentageForTap(tap), nil
 }
 
-func (p *Potentiometer) GetResistancePercentage() uint8 {
+func (p *Potentiometer) GetResistancePercentage() int {
 	return calculateResistancePercentageForTap(p.tapSelected)
 }
 
@@ -51,6 +51,6 @@ func calculateClosestTapForResistancePercentage(percentage int) uint8 {
 	return taps
 }
 
-func calculateResistancePercentageForTap(tap uint8) uint8 {
-	return uint8(tap * 100 / 255)
+func calculateResistancePercentageForTap(tap uint8) int {
+	return int(int(tap) * 100 / 255)
 }
