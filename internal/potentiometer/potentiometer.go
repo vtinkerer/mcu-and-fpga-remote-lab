@@ -45,6 +45,12 @@ func (p *Potentiometer) SetResistancePercentage(percentage int) (int, error) {
 }
 
 func (p *Potentiometer) GetResistancePercentage() int {
+	wiper, err := p.driver.getWiper()
+	if err == nil {
+		fmt.Println("wiper: ", wiper)
+	} else {
+		fmt.Println("error getting wiper: ", err)
+	}
 	return calculateResistancePercentageForTap(p.tapSelected)
 }
 
