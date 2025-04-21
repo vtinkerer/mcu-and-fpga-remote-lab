@@ -8,7 +8,7 @@ import (
 )
 
 type PostPotentiometerSetResistanceRequest struct {
-	Percentage uint8 `json:"percentage"`
+	Percentage int `json:"percentage"`
 }
 // Can be used throughout the session to try to set the resistance and get the real (actual) resistance in response
 func HandlePotentiometerSetResistancePercentage(device *Potentiometer) func(c *gin.Context) {

@@ -12,7 +12,7 @@ type Potentiometer struct {
 
 func NewPotentiometer() (*Potentiometer, error) {
 	// Find the right config here
-	driver, err := newDriver("/dev/i2c-20", addrGND)
+	driver, err := newDriver("/dev/i2c-1", addrGND)
 	if err != nil {
 		return nil, err
 	}
@@ -23,7 +23,7 @@ func NewPotentiometer() (*Potentiometer, error) {
 	}, nil
 }
 
-func (p *Potentiometer) SetResistancePercentage(percentage uint8) (uint8, error) {
+func (p *Potentiometer) SetResistancePercentage(percentage int) (uint8, error) {
 	// Clamp the percentage to the range 0-100
 	if percentage > 100 {
 		percentage = 100
@@ -45,7 +45,7 @@ func (p *Potentiometer) GetResistancePercentage() uint8 {
 	return calculateResistancePercentageForTap(p.tapSelected)
 }
 
-func calculateClosestTapForResistancePercentage(percentage uint8) uint8 {
+func calculateClosestTapForResistancePercentage(percentage int) uint8 {
 	taps := uint8(255 * percentage / 100)
 	fmt.Println("calculated taps: ", taps, "for percentage: ", percentage)
 	return taps
