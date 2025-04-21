@@ -78,6 +78,7 @@ func main() {
 	mux := multiplexer.NewMultiplexerModule(cfg.MULTIPLEXER_A0_1, cfg.MULTIPLEXER_A0_2, cfg.MULTIPLEXER_A1_1, cfg.MULTIPLEXER_A1_2)
 
 	switcher := pcbswitch.NewPCBSwitch(cfg.POWER_ON_PIN)
+	switcher.PowerOff()
 
 	clientAuthQueryRoutes := r.Group("")
 	{
