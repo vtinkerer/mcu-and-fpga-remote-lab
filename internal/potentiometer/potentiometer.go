@@ -1,6 +1,9 @@
 package potentiometer
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 const maxResistance = 10e3
 const step = maxResistance / 255
@@ -52,5 +55,5 @@ func calculateClosestTapForResistancePercentage(percentage int) uint8 {
 }
 
 func calculateResistancePercentageForTap(tap uint8) int {
-	return int(int(tap) * 100 / 255)
+	return int(math.Round(float64(tap) * 100 / 255))
 }
