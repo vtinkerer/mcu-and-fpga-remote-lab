@@ -39,7 +39,11 @@ func NewServer() *Server {
 	u.Open()
 	return &Server{
 		u: u,
-		wsUpgrader: websocket.Upgrader{},
+		wsUpgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true
+			},
+		},
 		wsConn: nil,
 		timer:  timer.NewTimer(10*time.Second, func() {}),
 	}
