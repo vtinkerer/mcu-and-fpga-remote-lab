@@ -156,7 +156,7 @@ func main() {
 }
 
 func (s *Server) CheckDeviceType(cfg *config.Config) error {
-	err := flashMCU(*cfg, filepath.Join("home", "pi", "digitrans-lab-go", "example-firmware", "new-mcu-3.hex"), s)
+	err := flashMCU(*cfg, filepath.Join("/","home", "pi", "digitrans-lab-go", "example-firmware", "new-mcu-3.hex"), s)
 	if err == nil {
 		s.deviceType = "mcu"
 		return nil
