@@ -163,7 +163,7 @@ func (s *Server) CheckDeviceType(cfg *config.Config) error {
 	}
 	fmt.Println("No new MCU found because of error: ", err)
 
-	err = flashFPGA(*cfg, filepath.Join("home", "pi", "digitrans-lab-go", "example-firmware", "fpga.svg"))
+	err = flashFPGA(*cfg, filepath.Join("home", "pi", "digitrans-lab-go", "example-firmware", "fpga.svf"))
 	if err == nil {
 		s.deviceType = "fpga"
 		return nil
