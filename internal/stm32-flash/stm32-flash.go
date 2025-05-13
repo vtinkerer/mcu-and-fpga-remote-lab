@@ -15,7 +15,7 @@ func Flash(filePath string) error {
 	}
 	defer flashMutex.Unlock()
 
-	result, err := runCommand("st-flash", "--format", "ihex", "write", filePath)
+	result, err := runCommand("st-flash", "--format", "ihex", "write", filePath, "--reset")
 	if err != nil {
 		return fmt.Errorf("failed to run command: %w", err)
 	}
