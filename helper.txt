@@ -1,0 +1,4 @@
+sudo apt-get update && sudo apt-get install libusb-1.0-0-dev cmake -y && cd ~ && mkdir ~/stlinktools && cd stlinktools/ && git clone https://github.com/texane/stlink stlink-repo && cd stlink-repo && make && cd ~/stlinktools/stlink-repo/build/Release/bin && sudo cp ./st-flash /usr/local/bin && cd ~/digitrans-lab-go && git pull && pm2 restart all && cd ~/mcu-and-fpga-remote-lab-frontend && git reset --hard origin/main && git pull && npm run build
+
+# Using rsync with SSH and sudo
+rsync -avz -e "ssh -p 2440" --rsync-path="sudo rsync" pi@195.69.76.136:/home/pi/digitrans-lab-go/cert ./
