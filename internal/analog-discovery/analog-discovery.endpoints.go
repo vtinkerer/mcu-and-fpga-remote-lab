@@ -86,8 +86,8 @@ func HandleWritePin(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 			return
 		}
 
-		// Frontend sends 1, 2, 3, 4, but we need to convert it to 0, 1, 2, 3
-		pin := pinReq.Pin - 1
+		// Frontend sends 1, 2, 3, 4, but we need to convert it to 12, 13, 14, 15
+		pin := pinReq.Pin + 11
 
 		if !isPinAllowed(pin) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid pin, only %v are allowed", OutputPins)})
