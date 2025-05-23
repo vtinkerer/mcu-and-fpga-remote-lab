@@ -526,7 +526,12 @@ func (ad *AnalogDiscoveryDevice) SetPinMode(pin int, mode bool) error {
 		mask &= ^(1 << uint(pin))
 	}
 
-	if FDwfDigitalIOOutputEnableSet(ad.Handle, mask) == 0 {
+	fmt.Printf("SetPinMode Mask: %016b\n", mask)
+
+	outputEnableResult := FDwfDigitalIOOutputEnableSet(ad.Handle, mask)
+	fmt.Printf("SetPinMode output enable result: %d\n", outputEnableResult)
+
+	if outputEnableResult == 0 {
 		if err := checkError(); err != nil {
 			return fmt.Errorf("error setting digital IO output enable: %w", err)
 		}
