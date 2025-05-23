@@ -552,11 +552,15 @@ func (ad *AnalogDiscoveryDevice) SetPinState(pin int, value bool) error {
 		mask &= ^(1 << uint(pin))
 	}
 
+	fmt.Printf("Mask: %016b\n", mask)
+
 	if FDwfDigitalIOOutputSet(ad.Handle, mask) == 0 {
 		if err := checkError(); err != nil {
 			return fmt.Errorf("error setting digital IO output: %w", err)
 		}
 	}
+
+	fmt.Printf("Successfully set digital IO output\n")
 
 	return nil
 }
