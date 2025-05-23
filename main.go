@@ -49,6 +49,26 @@ func NewServer() *Server {
 	}
 }
 
+func findWorkingCamera() (string, error) {
+	for i := 0; i <= 10; i++ {
+		device := fmt.Sprintf("/dev/video%d", i)
+		
+		// Try to create a camera with this device
+		cam, err := camera.NewWebcamServer(device)
+		if err != nil {
+			log.Printf("Camera device %s not working: %v", device, err)
+			continue
+		}
+		
+		// If successful, close it and return the device path
+		cam.Close()
+		log.Printf("Found working camera device: %s", device)
+		return device, nil
+	}
+	
+	return "", fmt.Errorf("no working camera device found in /dev/video0 through /dev/video10")
+}
+
 func main() {
 	r := gin.Default()
 
@@ -59,7 +79,13 @@ func main() {
 		log.Fatalf("Error loading config:", err)
 	}
 
-	cam, err := camera.NewWebcamServer("/dev/video0")
+	// Find the first working camera device
+	cameraDevice, err := findWorkingCamera()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cam, err := camera.NewWebcamServer(cameraDevice)
 	if err != nil {
 		log.Fatal(err)
 	}
