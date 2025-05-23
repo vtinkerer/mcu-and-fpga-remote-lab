@@ -543,9 +543,17 @@ func (ad *AnalogDiscoveryDevice) SetPinMode(pin int, mode bool) error {
 // set digital input pin state
 func (ad *AnalogDiscoveryDevice) SetPinState(pin int, value bool) error {
 	var mask uint16
+	var _pinModeMask uint16 // TEST LINE
 
 	ad.mu_gpio.Lock()
 	defer ad.mu_gpio.Unlock()
+
+	if FDwfDigitalIOOutputEnableGet(ad.Handle, &_pinModeMask) == 0 { // TEST LINE
+		if err := checkError(); err != nil { // TEST LINE
+			return fmt.Errorf("error getting digital IO output enable: %w", err) // TEST LINE
+		} // TEST LINE
+	} // TEST LINE
+	fmt.Printf("Pin mode mask: %016b\n", _pinModeMask) // TEST LINE
 
 	if FDwfDigitalIOOutputGet(ad.Handle, &mask) == 0 {
 		if err := checkError(); err != nil {
