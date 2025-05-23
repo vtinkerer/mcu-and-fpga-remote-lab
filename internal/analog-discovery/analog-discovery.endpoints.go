@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var OutputPins = []int{0, 1, 2, 3}
+var OutputPins = []int{12, 13, 14, 15}
 var outputChannels = []int{0, 1}
 var wavegenFunctions = []string{"sine", "rampup", "triangle", "pulse"}
 
@@ -89,7 +89,7 @@ func HandleWritePin(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 		// Frontend sends 1, 2, 3, 4, but we need to convert it to 12, 13, 14, 15
 		pin := pinReq.Pin + 11
 
-		if !isPinAllowed(pin) {
+		if !isPinAllowed(pinReq.Pin) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid pin, only %v are allowed", OutputPins)})
 			return
 		}
