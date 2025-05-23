@@ -40,6 +40,7 @@ var FDwfAnalogInChannelEnableSet func(deviceHandle int32, idxChannel int, isEnab
 var FDwfAnalogInChannelRangeSet func(deviceHandle int32, idxChannel int, volts float64) int32
 var FDwfAnalogInStatus func(deviceHandle int32, readData int, pSTS *int) int32
 var FDwfAnalogInStatusData func(deviceHandle int32, idxChannel int, rgdVolts *float64, cdData int) int32
+var FDwfDigitalIOConfigure func(deviceHandle int32) int32
 
 // initializing Analog Discovery library
 func initDL() {
@@ -80,6 +81,7 @@ func initDL() {
 	purego.RegisterLibFunc(&FDwfAnalogOutNodeFrequencyGet, dwf, "FDwfAnalogOutNodeFrequencyGet")
 	purego.RegisterLibFunc(&FDwfAnalogOutNodeAmplitudeGet, dwf, "FDwfAnalogOutNodeAmplitudeGet")
 	purego.RegisterLibFunc(&FDwfAnalogOutNodeFunctionGet, dwf, "FDwfAnalogOutNodeFunctionGet")
+	purego.RegisterLibFunc(&FDwfDigitalIOConfigure, dwf, "FDwfDigitalIOConfigure")
 }
 
 type AnalogDiscoveryDevice struct {
@@ -554,9 +556,21 @@ func (ad *AnalogDiscoveryDevice) SetPinState(pin int, value bool) error {
 
 	fmt.Printf("Mask: %016b\n", mask)
 
-	if FDwfDigitalIOOutputSet(ad.Handle, mask) == 0 {
+	outputSetResult := FDwfDigitalIOOutputSet(ad.Handle, mask)
+	fmt.Printf("Output set result: %d\n", outputSetResult)
+
+	if outputSetResult == 0 {
 		if err := checkError(); err != nil {
 			return fmt.Errorf("error setting digital IO output: %w", err)
+		}
+	}
+
+	ioConfigureResult := FDwfDigitalIOConfigure(ad.Handle)
+	fmt.Printf("IO configure result: %d\n", ioConfigureResult)
+
+	if ioConfigureResult == 0 {
+		if err := checkError(); err != nil {
+			return fmt.Errorf("error configuring digital IO: %w", err)
 		}
 	}
 
