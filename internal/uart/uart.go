@@ -21,7 +21,7 @@ func NewUART() *UART {
 func openSerialPort() (serial.Port, error) {
 	// Create new UART but with our existing ReadChannel
 	mode := &serial.Mode{
-		BaudRate: 115200,
+		BaudRate: 9600,
 	}
 
 	ports, err := serial.GetPortsList()
