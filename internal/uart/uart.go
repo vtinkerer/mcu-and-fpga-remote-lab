@@ -48,7 +48,7 @@ func (u *UART) Open() error {
         return nil
     }
 
-    port, err := openSerialPort(115200)
+    port, err := openSerialPort(9600)
     if err != nil {
         return err
     }
