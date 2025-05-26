@@ -18,10 +18,9 @@ func NewUART() *UART {
     return &UART{}
 }
 
-func openSerialPort() (serial.Port, error) {
-	// Create new UART but with our existing ReadChannel
+func openSerialPort(baudRate int) (serial.Port, error) {
 	mode := &serial.Mode{
-		BaudRate: 115200,
+		BaudRate: baudRate,
 	}
 
 	ports, err := serial.GetPortsList()
@@ -49,7 +48,7 @@ func (u *UART) Open() error {
         return nil
     }
 
-    port, err := openSerialPort()
+    port, err := openSerialPort(115200)
     if err != nil {
         return err
     }
@@ -111,19 +110,23 @@ func (u *UART) ChangeSpeed(speed int) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	
-    fmt.Println("Changing speed to ", speed)
+    fmt.Println("Changing speed to", speed)
 
 	if !u.isActive {
         fmt.Println("UART is not active, doing nothing...")
         return nil
 	}
 
-    if err := u.port.SetMode(&serial.Mode{
-		BaudRate: speed,
-	}); err != nil {
-        fmt.Println("Error changing speed: ", err)
-		return err
-	}
-    fmt.Println("Speed changed to ", speed)
+    fmt.Println("Closing port for speed change")
+    u.port.Close()
+    fmt.Println("Opening port for speed change")
+    port, err := openSerialPort(speed)
+    if err != nil {
+        fmt.Println("Error opening port: ", err)
+        return err
+    }
+    u.port = port
+    fmt.Println("The port is opened")
+    fmt.Println("Speed changed to", speed)
 	return nil
 }
