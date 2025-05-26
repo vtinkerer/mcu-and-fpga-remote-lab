@@ -111,14 +111,19 @@ func (u *UART) ChangeSpeed(speed int) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	
+    fmt.Println("Changing speed to ", speed)
+
 	if !u.isActive {
-		return nil
+        fmt.Println("UART is not active, doing nothing...")
+        return nil
 	}
 
     if err := u.port.SetMode(&serial.Mode{
 		BaudRate: speed,
 	}); err != nil {
+        fmt.Println("Error changing speed: ", err)
 		return err
 	}
+    fmt.Println("Speed changed to ", speed)
 	return nil
 }
