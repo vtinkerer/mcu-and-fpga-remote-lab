@@ -277,7 +277,7 @@ func (s *Server) handleWSToUART(conn *websocket.Conn) {
 		}
 
 		// Forward message to UART
-		if err := s.u.Write([]byte(wsMessage.Text)); err != nil {
+		if err := s.u.Write([]byte(wsMessage.Text + "\n")); err != nil {
 			log.Printf("UART write error: %v", err)
 		}
 	}
