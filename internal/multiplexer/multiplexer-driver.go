@@ -41,23 +41,30 @@ func (d *driverMultiplexer) selectInputChannel(channel int) error {
 
 	channel = channel - 1
 
-	d.setA1(channel & 1)
-	d.setA2(channel & 2)
+	a1Val := ((channel - 1) & 1) >> 0
+	a2Val := ((channel - 1) & 2) >> 1
+
+	fmt.Printf("setting a1Val: %d, a2Val: %d\n", a1Val, a2Val)
+
+	d.setA1(a1Val)
+	d.setA2(a2Val)
 
 	return nil
 }
 
 func (d *driverMultiplexer) getInputChannel() (int, error) {
-	if d.a1Val == 0 && d.a2Val == 0 {
+	fmt.Printf("getting a1Val: %d, a2Val: %d\n", d.a1Val, d.a2Val)
+
+	if d.a2Val == 0 && d.a1Val == 0 {
 		return 1, nil
 	}
-	if d.a1Val == 0 && d.a2Val == 1 {
+	if d.a2Val == 0 && d.a1Val == 1 {
 		return 2, nil
 	}
-	if d.a1Val == 1 && d.a2Val == 0 {
+	if d.a2Val == 1 && d.a1Val == 0 {
 		return 3, nil
 	}
-	if d.a1Val == 1 && d.a2Val == 1 {
+	if d.a2Val == 1 && d.a1Val == 1 {
 		return 4, nil
 	}
 
