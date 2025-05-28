@@ -41,8 +41,8 @@ func (d *driverMultiplexer) selectInputChannel(channel int) error {
 
 	channel = channel - 1
 
-	a1Val := ((channel - 1) & 1) >> 0
-	a2Val := ((channel - 1) & 2) >> 1
+	a1Val := ((channel - 1) >> 0) & 1
+	a2Val := ((channel - 1) >> 1) & 1
 
 	fmt.Printf("setting a1Val: %d, a2Val: %d\n", a1Val, a2Val)
 
