@@ -10,8 +10,8 @@ import (
 func HandleSelectInputChannel(device *MultiplexerModule) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var request struct {
-			Multiplexer int `json:"multiplexer"`
-			Channel     int `json:"channel"`
+			Multiplexer int `json:"multiplexer" binding:"required"`
+			Channel     int `json:"channel" binding:"required"`
 		}
 
 		if err := c.ShouldBindJSON(&request); err != nil {
