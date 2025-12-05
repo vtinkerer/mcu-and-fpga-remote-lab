@@ -40,7 +40,7 @@ func NewWebcamServer(devicePath string) (*WebcamServer, error) {
 		return nil, fmt.Errorf("Motion-JPEG format not supported")
 	}
 
-	_, _, _, err = cam.SetImageFormat(selectedFormat, 640, 480)
+	_, _, _, err = cam.SetImageFormat(selectedFormat, 1920, 1080)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set image format: %v", err)
 	}
@@ -127,7 +127,7 @@ func (ws *WebcamServer) ServeHTTP(c *gin.Context) {
 	}
 
 	clientChan := make(chan []byte, 10)
-	
+
 	ws.clientsMutex.Lock()
 	ws.clients[clientChan] = true
 	ws.StartStreaming()
