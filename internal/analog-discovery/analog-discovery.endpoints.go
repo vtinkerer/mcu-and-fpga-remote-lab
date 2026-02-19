@@ -47,6 +47,7 @@ type GetScopeDataRequest struct {
 	Channel        int `json:"channel"`
 	IsFirstCapture int `json:"isFirstCapture"`
 }
+
 func HandleScopeGetData(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 
@@ -77,6 +78,7 @@ type WritePinRequest struct {
 	Pin   int `json:"pin"`
 	State int `json:"state"`
 }
+
 func HandleWritePin(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var pinReq WritePinRequest
@@ -109,6 +111,7 @@ type WriteWavegenAmplitudeRequest struct {
 	Channel   int     `json:"channel"`
 	Amplitude float64 `json:"amplitude"`
 }
+
 func HandleWavegenAmplitudeSet(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenAmplitude WriteWavegenAmplitudeRequest
@@ -141,6 +144,7 @@ type WriteWavegenDutyCycleRequest struct {
 	Channel   int     `json:"channel"`
 	DutyCycle float64 `json:"dutyCycle"`
 }
+
 func HandleWavegenDutyCycleSet(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenDutyCycle WriteWavegenDutyCycleRequest
@@ -173,6 +177,7 @@ type WriteWavegenFunctionRequest struct {
 	Channel  int    `json:"channel"`
 	Function string `json:"function"`
 }
+
 func HandleWavegenFunctionSet(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenFunction WriteWavegenFunctionRequest
@@ -205,6 +210,7 @@ type WriteWavegenFrequencyRequest struct {
 	Channel   int     `json:"channel"`
 	Frequency float64 `json:"frequency"`
 }
+
 func HandleWavegenFrequencySet(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenFrequency WriteWavegenFrequencyRequest
@@ -237,6 +243,7 @@ type WriteWavegenChannelEnableRequest struct {
 	Channel   int `json:"channel"`
 	IsEnabled int `json:"isEnabled"`
 }
+
 func HandleWavegenEnableChannel(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenEnableChannel WriteWavegenChannelEnableRequest
@@ -264,6 +271,7 @@ type WriteWavegenRunRequest struct {
 	Channel int `json:"channel"`
 	IsStart int `json:"isStart"`
 }
+
 func HandleWavegenRun(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenRun WriteWavegenRunRequest
