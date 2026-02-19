@@ -192,7 +192,7 @@ func (ad *AnalogDiscoveryDevice) GenerateWaveform(idxChannel int, analogNode str
 		}
 	}
 
-	if amplitude < -5 || amplitude > 5 {
+	if amplitude < 0 || amplitude > 5 {
 		if err := checkError(); err != nil {
 			return fmt.Errorf("incorrect amplitude value: %w", err)
 		}
@@ -230,8 +230,8 @@ func (ad *AnalogDiscoveryDevice) GenerateWaveform(idxChannel int, analogNode str
 		ad.SetAnalogOutOffset(idxChannel, analogNode, 0.5*amplitude)
 		ad.SetAnalogOutAmplitude(idxChannel, analogNode, 0.5*amplitude)
 	} else {
-		ad.SetAnalogOutOffset(idxChannel, analogNode, 0.5*amplitude)
-		ad.SetAnalogOutAmplitude(idxChannel, analogNode, 0.5*amplitude)
+		ad.SetAnalogOutOffset(idxChannel, analogNode, 0)
+		ad.SetAnalogOutAmplitude(idxChannel, analogNode, amplitude)
 	}
 
 	var symmetry float64
@@ -399,13 +399,14 @@ func (ad *AnalogDiscoveryDevice) SetAnalogOutNodeFunction(indexCh int, nodeName 
 	return nil
 }
 
+// set offset of analog out function
 func (ad *AnalogDiscoveryDevice) SetAnalogOutOffset(indexCh int, nodeName string, offset float64) error {
 
 	a, _ := GetAnalogOutNodeCarrierByName(nodeName)
 	if a == -1 {
 		return fmt.Errorf("no such analog out node")
 	}
-	if offset <= 0 || offset > 3.0 {
+	if offset < 0 || offset > 3.0 {
 		return fmt.Errorf("incorrect or too high offset")
 	}
 	if FDwfAnalogOutNodeOffsetSet(ad.Handle, indexCh, a, offset) == 0 {
