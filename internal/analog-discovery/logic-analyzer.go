@@ -20,7 +20,7 @@ const (
 	logicAnalyzerMaxDurationSec      = 10
 	logicAnalyzerMaxCaptureSamples   = 20_000_000
 	logicAnalyzerDefaultTimeoutSec   = 10
-	logicAnalyzerFixedSampleRateHz   = 250_000
+	logicAnalyzerMaxUserSampleRateHz = 250_000
 	logicAnalyzerCorruptWarnMinCount = 32
 	logicAnalyzerCorruptWarnMinRatio = 0.0001
 	logicAnalyzerReadChunkSamples    = 8192
@@ -334,22 +334,29 @@ func (ad *AnalogDiscoveryDevice) normalizeLogicCaptureRequest(req LogicCaptureRe
 		return normalizedLogicCaptureRequest{}, nil, err
 	}
 
-	effectiveRate := logicAnalyzerFixedSampleRateHz
 	maxAllowedRate := logicAnalyzerMaxCaptureSamples / req.DurationSec
-	if effectiveRate > maxAllowedRate {
-		effectiveRate = maxAllowedRate
+	if maxAllowedRate > logicAnalyzerMaxUserSampleRateHz {
+		maxAllowedRate = logicAnalyzerMaxUserSampleRateHz
 	}
 	hardwareSafeMaxRate := int(math.Floor(internalClock))
-	if effectiveRate > hardwareSafeMaxRate {
-		effectiveRate = hardwareSafeMaxRate
+	if maxAllowedRate > hardwareSafeMaxRate {
+		maxAllowedRate = hardwareSafeMaxRate
 	}
+	if maxAllowedRate < logicAnalyzerMinSampleRateHz {
+		maxAllowedRate = logicAnalyzerMinSampleRateHz
+	}
+
+	effectiveRate := requestedRate
 	if effectiveRate < logicAnalyzerMinSampleRateHz {
 		effectiveRate = logicAnalyzerMinSampleRateHz
+	}
+	if effectiveRate > maxAllowedRate {
+		effectiveRate = maxAllowedRate
 	}
 
 	warnings := []string{}
 	if effectiveRate != requestedRate {
-		warnings = append(warnings, "sampleRateHz forced to 250000")
+		warnings = append(warnings, "sampleRateHz clamped")
 	}
 
 	normalizedReq := normalizedLogicCaptureRequest{
