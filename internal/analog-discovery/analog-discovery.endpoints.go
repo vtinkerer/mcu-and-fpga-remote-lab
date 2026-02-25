@@ -2,6 +2,7 @@ package analogdiscovery
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -47,6 +48,7 @@ type GetScopeDataRequest struct {
 	Channel        int `json:"channel"`
 	IsFirstCapture int `json:"isFirstCapture"`
 }
+
 func HandleScopeGetData(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 
@@ -77,6 +79,7 @@ type WritePinRequest struct {
 	Pin   int `json:"pin"`
 	State int `json:"state"`
 }
+
 func HandleWritePin(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var pinReq WritePinRequest
@@ -109,6 +112,7 @@ type WriteWavegenAmplitudeRequest struct {
 	Channel   int     `json:"channel"`
 	Amplitude float64 `json:"amplitude"`
 }
+
 func HandleWavegenAmplitudeSet(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenAmplitude WriteWavegenAmplitudeRequest
@@ -141,6 +145,7 @@ type WriteWavegenDutyCycleRequest struct {
 	Channel   int     `json:"channel"`
 	DutyCycle float64 `json:"dutyCycle"`
 }
+
 func HandleWavegenDutyCycleSet(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenDutyCycle WriteWavegenDutyCycleRequest
@@ -173,6 +178,7 @@ type WriteWavegenFunctionRequest struct {
 	Channel  int    `json:"channel"`
 	Function string `json:"function"`
 }
+
 func HandleWavegenFunctionSet(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenFunction WriteWavegenFunctionRequest
@@ -205,6 +211,7 @@ type WriteWavegenFrequencyRequest struct {
 	Channel   int     `json:"channel"`
 	Frequency float64 `json:"frequency"`
 }
+
 func HandleWavegenFrequencySet(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenFrequency WriteWavegenFrequencyRequest
@@ -237,6 +244,7 @@ type WriteWavegenChannelEnableRequest struct {
 	Channel   int `json:"channel"`
 	IsEnabled int `json:"isEnabled"`
 }
+
 func HandleWavegenEnableChannel(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenEnableChannel WriteWavegenChannelEnableRequest
@@ -264,6 +272,7 @@ type WriteWavegenRunRequest struct {
 	Channel int `json:"channel"`
 	IsStart int `json:"isStart"`
 }
+
 func HandleWavegenRun(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var wavegenRun WriteWavegenRunRequest
@@ -283,5 +292,39 @@ func HandleWavegenRun(device *AnalogDiscoveryDevice) func(c *gin.Context) {
 
 		c.JSON(http.StatusOK, gin.H{"message": "Analog out channel generator started/stopped successfully"})
 
+	}
+}
+
+func HandleLogicAnalyzerCapture(device *AnalogDiscoveryDevice) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		var captureReq LogicCaptureRequest
+		decoder := json.NewDecoder(c.Request.Body)
+		if err := decoder.Decode(&captureReq); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		resp, err := device.CaptureLogicTransitions(captureReq)
+		if err != nil {
+			var validationErr ValidationError
+			var deviceUnavailableErr DeviceUnavailableError
+			var deviceRuntimeErr DeviceRuntimeError
+
+			switch {
+			case errors.As(err, &validationErr):
+				c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+			case errors.Is(err, ErrLogicCaptureBusy):
+				c.JSON(http.StatusConflict, gin.H{"error": ErrLogicCaptureBusy.Error()})
+			case errors.As(err, &deviceUnavailableErr):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": deviceUnavailableErr.Error()})
+			case errors.As(err, &deviceRuntimeErr):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": deviceRuntimeErr.Error()})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			}
+			return
+		}
+
+		c.JSON(http.StatusOK, resp)
 	}
 }

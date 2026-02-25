@@ -82,11 +82,13 @@ func initDL() {
 	purego.RegisterLibFunc(&FDwfAnalogOutNodeAmplitudeGet, dwf, "FDwfAnalogOutNodeAmplitudeGet")
 	purego.RegisterLibFunc(&FDwfAnalogOutNodeFunctionGet, dwf, "FDwfAnalogOutNodeFunctionGet")
 	purego.RegisterLibFunc(&FDwfDigitalIOConfigure, dwf, "FDwfDigitalIOConfigure")
+	registerDigitalInFunctions()
 }
 
 type AnalogDiscoveryDevice struct {
-	Handle  int32
-	mu_gpio sync.Mutex
+	Handle           int32
+	mu_gpio          sync.Mutex
+	mu_logicAnalyzer sync.Mutex
 }
 
 // get function by name
