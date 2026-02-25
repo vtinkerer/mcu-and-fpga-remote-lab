@@ -52,20 +52,20 @@ func NewServer() *Server {
 func findWorkingCamera() (string, error) {
 	for i := 0; i <= 10; i++ {
 		device := fmt.Sprintf("/dev/video%d", i)
-		
+
 		// Try to create a camera with this device
 		cam, err := camera.NewWebcamServer(device)
 		if err != nil {
 			log.Printf("Camera device %s not working: %v", device, err)
 			continue
 		}
-		
+
 		// If successful, close it and return the device path
 		cam.Close()
 		log.Printf("Found working camera device: %s", device)
 		return device, nil
 	}
-	
+
 	return "", fmt.Errorf("no working camera device found in /dev/video0 through /dev/video10")
 }
 
@@ -133,6 +133,7 @@ func main() {
 		clientAuthRoutes.POST("/api/wavegen/write-frequency", analogdiscovery.HandleWavegenFrequencySet(device))
 		clientAuthRoutes.POST("/api/wavegen/write-duty-cycle", analogdiscovery.HandleWavegenDutyCycleSet(device))
 		clientAuthRoutes.POST("/api/scope/get-scope-data", analogdiscovery.HandleScopeGetData(device))
+		clientAuthRoutes.POST("/api/logic-analyzer/capture", analogdiscovery.HandleLogicAnalyzerCapture(device))
 		clientAuthRoutes.POST("/api/wavegen/write-config", analogdiscovery.HandleWavegenRun(device))
 		clientAuthRoutes.GET("/api/my-session", func(c *gin.Context) {
 			cs := currentsession.GetCurrentSession()
@@ -182,7 +183,7 @@ func main() {
 }
 
 func (s *Server) CheckDeviceType(cfg *config.Config) error {
-	err := flashMCU(*cfg, filepath.Join("/","home", "pi", "digitrans-lab-go", "example-firmware", "new-mcu-3.hex"), s)
+	err := flashMCU(*cfg, filepath.Join("/", "home", "pi", "digitrans-lab-go", "example-firmware", "new-mcu-3.hex"), s)
 	if err == nil {
 		s.deviceType = "mcu"
 		return nil
@@ -237,16 +238,16 @@ func (s *Server) diconnectWebSocket() {
 		log.Printf("JSON marshal error: %v", err)
 		return
 	}
-	
+
 	s.wsConnMu.Lock()
 	defer s.wsConnMu.Unlock()
-	
+
 	if s.wsConn != nil {
 		s.wsConn.WriteMessage(websocket.TextMessage, json)
 		s.wsConn.Close()
 		s.wsConn = nil
 	}
-	
+
 	// Immediately reset the session when forced disconnect occurs
 	currentsession.GetCurrentSession().Reset()
 }
@@ -333,10 +334,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Trying to lock wsConnMu")
 	s.wsConnMu.Lock()
 	fmt.Println("Handle WebSocket called")
-	
+
 	// Stop any pending session reset timer
 	s.timer.Stop()
-	
+
 	// Check for active connection
 	if s.wsConn != nil {
 		log.Println("Only one WebSocket connection allowed at a time")
@@ -368,20 +369,20 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		fmt.Println("WebSocket disconnected, beginning cleanup")
 		s.wsConnMu.Lock()
-		
+
 		// Cleanly close and clear the connection
 		if s.wsConn != nil {
 			s.wsConn.Close()
 			s.wsConn = nil
 		}
-		
+
 		// Cancel the context to stop the UART reading goroutine
 		cancel()
-		
+
 		fmt.Println("Starting reconnection window")
 		// Don't reset the session immediately, schedule it after 6 seconds
 		s.scheduleSessionReset()
-		
+
 		s.wsConnMu.Unlock()
 	}()
 
@@ -458,7 +459,7 @@ func (s *Server) scheduleSessionReset() {
 		fmt.Println("Reconnection window expired, resetting session")
 		s.wsConnMu.Lock()
 		defer s.wsConnMu.Unlock()
-		
+
 		// Only reset if there is no active connection
 		if s.wsConn == nil {
 			fmt.Println("No reconnection occurred, resetting session")
