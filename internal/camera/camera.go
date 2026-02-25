@@ -99,17 +99,27 @@ func (ws *WebcamServer) captureFrames() {
 			log.Printf("Error reading frame: %v", err)
 			continue
 		}
+		// Copy frame bytes because the underlying webcam buffer can be reused.
+		frameCopy := append([]byte(nil), frameData...)
 
 		ws.mutex.Lock()
-		ws.frame = frameData
+		ws.frame = frameCopy
 		ws.mutex.Unlock()
 
 		ws.clientsMutex.Lock()
 		for clientChan := range ws.clients {
+			// Keep only the latest frame per client to avoid accumulated lag.
 			select {
-			case clientChan <- frameData:
+			case clientChan <- frameCopy:
 			default:
-				// If the client is not ready, skip this frame for them
+				select {
+				case <-clientChan:
+				default:
+				}
+				select {
+				case clientChan <- frameCopy:
+				default:
+				}
 			}
 		}
 		ws.clientsMutex.Unlock()
@@ -126,7 +136,8 @@ func (ws *WebcamServer) ServeHTTP(c *gin.Context) {
 		return
 	}
 
-	clientChan := make(chan []byte, 10)
+	// Buffer size 1 keeps memory low and prevents stale-frame backlog.
+	clientChan := make(chan []byte, 1)
 
 	ws.clientsMutex.Lock()
 	ws.clients[clientChan] = true
