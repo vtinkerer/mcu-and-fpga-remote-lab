@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/blackjack/webcam"
 	"github.com/gin-gonic/gin"
@@ -16,14 +17,21 @@ type WebcamServer struct {
 	mutex         sync.Mutex
 	clients       map[chan []byte]bool
 	clientsMutex  sync.Mutex
-	isStreaming   bool
+	isStreaming   atomic.Bool
 	streamingLock sync.Mutex
 }
+
+const desiredBufferCount uint32 = 4
 
 func NewWebcamServer(devicePath string) (*WebcamServer, error) {
 	cam, err := webcam.Open(devicePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open webcam: %v", err)
+	}
+
+	// webcam defaults to a very high buffer count (256). Keep this small for low-latency live preview.
+	if err := cam.SetBufferCount(desiredBufferCount); err != nil {
+		return nil, fmt.Errorf("failed to set buffer count: %v", err)
 	}
 
 	formats := cam.GetSupportedFormats()
@@ -55,7 +63,7 @@ func (ws *WebcamServer) StartStreaming() error {
 	ws.streamingLock.Lock()
 	defer ws.streamingLock.Unlock()
 
-	if ws.isStreaming {
+	if ws.isStreaming.Load() {
 		return nil // Already streaming
 	}
 
@@ -64,7 +72,7 @@ func (ws *WebcamServer) StartStreaming() error {
 		return fmt.Errorf("failed to start streaming: %v", err)
 	}
 
-	ws.isStreaming = true
+	ws.isStreaming.Store(true)
 	go ws.captureFrames()
 	return nil
 }
@@ -73,12 +81,12 @@ func (ws *WebcamServer) stopStreaming() {
 	ws.streamingLock.Lock()
 	defer ws.streamingLock.Unlock()
 
-	if !ws.isStreaming {
+	if !ws.isStreaming.Load() {
 		return // Not streaming
 	}
 
 	ws.cam.StopStreaming()
-	ws.isStreaming = false
+	ws.isStreaming.Store(false)
 }
 
 func (ws *WebcamServer) Close() {
@@ -87,37 +95,49 @@ func (ws *WebcamServer) Close() {
 }
 
 func (ws *WebcamServer) captureFrames() {
-	for ws.isStreaming {
+	for ws.isStreaming.Load() {
 		err := ws.cam.WaitForFrame(uint32(5))
 		if err != nil {
 			log.Printf("Error waiting for frame: %v", err)
 			continue
 		}
 
-		frameData, err := ws.cam.ReadFrame()
-		if err != nil {
-			log.Printf("Error reading frame: %v", err)
+		// Drain all available frames and keep only the most recent one.
+		var latestFrame []byte
+		for {
+			frameData, err := ws.cam.ReadFrame()
+			if err != nil {
+				log.Printf("Error reading frame: %v", err)
+				latestFrame = nil
+				break
+			}
+			if len(frameData) == 0 {
+				break
+			}
+
+			latestFrame = append(latestFrame[:0], frameData...)
+		}
+
+		if len(latestFrame) == 0 {
 			continue
 		}
-		// Copy frame bytes because the underlying webcam buffer can be reused.
-		frameCopy := append([]byte(nil), frameData...)
 
 		ws.mutex.Lock()
-		ws.frame = frameCopy
+		ws.frame = latestFrame
 		ws.mutex.Unlock()
 
 		ws.clientsMutex.Lock()
 		for clientChan := range ws.clients {
 			// Keep only the latest frame per client to avoid accumulated lag.
 			select {
-			case clientChan <- frameCopy:
+			case clientChan <- latestFrame:
 			default:
 				select {
 				case <-clientChan:
 				default:
 				}
 				select {
-				case clientChan <- frameCopy:
+				case clientChan <- latestFrame:
 				default:
 				}
 			}
@@ -131,8 +151,18 @@ func (ws *WebcamServer) ServeHTTP(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
 	c.Header("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+	c.Header("X-Accel-Buffering", "no")
 
 	if c.Request.Method == "OPTIONS" {
+		return
+	}
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "streaming not supported"})
 		return
 	}
 
@@ -141,27 +171,52 @@ func (ws *WebcamServer) ServeHTTP(c *gin.Context) {
 
 	ws.clientsMutex.Lock()
 	ws.clients[clientChan] = true
-	ws.StartStreaming()
 	ws.clientsMutex.Unlock()
 
 	defer func() {
 		ws.clientsMutex.Lock()
 		delete(ws.clients, clientChan)
-		if len(ws.clients) == 0 {
+		shouldStop := len(ws.clients) == 0
+		ws.clientsMutex.Unlock()
+
+		if shouldStop {
 			ws.stopStreaming()
 		}
-		ws.clientsMutex.Unlock()
 		close(clientChan)
 	}()
 
-	w := c.Writer
+	if err := ws.StartStreaming(); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to start camera stream"})
+		return
+	}
+
+	// Send the last known frame immediately when available.
+	ws.mutex.Lock()
+	lastFrame := append([]byte(nil), ws.frame...)
+	ws.mutex.Unlock()
+	if len(lastFrame) > 0 {
+		select {
+		case clientChan <- lastFrame:
+		default:
+		}
+	}
+
 	for {
 		select {
-		case frameData := <-clientChan:
-			w.Write([]byte("--frame\r\nContent-Type: image/jpeg\r\n\r\n"))
-			w.Write(frameData)
-			w.Write([]byte("\r\n"))
-			w.(http.Flusher).Flush()
+		case frameData, ok := <-clientChan:
+			if !ok {
+				return
+			}
+			if _, err := c.Writer.Write([]byte("--frame\r\nContent-Type: image/jpeg\r\n\r\n")); err != nil {
+				return
+			}
+			if _, err := c.Writer.Write(frameData); err != nil {
+				return
+			}
+			if _, err := c.Writer.Write([]byte("\r\n")); err != nil {
+				return
+			}
+			flusher.Flush()
 		case <-c.Request.Context().Done():
 			return
 		}
