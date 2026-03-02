@@ -1,6 +1,7 @@
 package camera
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/blackjack/webcam"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sys/unix"
 )
 
 type WebcamServer struct {
@@ -107,8 +109,11 @@ func (ws *WebcamServer) captureFrames() {
 		for {
 			frameData, err := ws.cam.ReadFrame()
 			if err != nil {
+				// Non-blocking V4L2 read returns EAGAIN when no more queued frames are available.
+				if errors.Is(err, unix.EAGAIN) {
+					break
+				}
 				log.Printf("Error reading frame: %v", err)
-				latestFrame = nil
 				break
 			}
 			if len(frameData) == 0 {
