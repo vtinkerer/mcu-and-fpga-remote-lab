@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	logicAnalyzerDefaultSampleRateHz = 250_000
+	logicAnalyzerDefaultSampleRateHz = 2_000_000
 	logicAnalyzerMinSampleRateHz     = 1_000
 	logicAnalyzerMinDurationSec      = 1
 	logicAnalyzerMaxDurationSec      = 10
