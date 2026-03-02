@@ -1,14 +1,16 @@
 package analogdiscovery
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
 	"math"
+	"runtime"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/ebitengine/purego"
 )
@@ -20,10 +22,15 @@ const (
 	logicAnalyzerMaxDurationSec      = 10
 	logicAnalyzerMaxCaptureSamples   = 20_000_000
 	logicAnalyzerDefaultTimeoutSec   = 10
-	logicAnalyzerMaxUserSampleRateHz = 2_000_000
+	logicAnalyzerMaxUserSampleRateHz = 1_000_000
 	logicAnalyzerCorruptWarnMinCount = 32
 	logicAnalyzerCorruptWarnMinRatio = 0.0001
-	logicAnalyzerReadChunkSamples    = 8192
+	logicAnalyzerIdleSleepMin        = 25 * time.Microsecond
+	logicAnalyzerIdleSleepMax        = 200 * time.Microsecond
+	logicAnalyzerIdleSpinPolls       = 4
+	logicAnalyzerBufferWindowWarnUs  = 2_000
+	logicAnalyzerPollsPerBuffer      = 12
+	logicAnalyzerSampleBytes         = 2 // 16-bit sample format
 )
 
 const (
@@ -41,14 +48,14 @@ var (
 	FDwfDigitalInReset                 func(deviceHandle int32) int32
 	FDwfDigitalInConfigure             func(deviceHandle int32, fReconfigure int, fStart int) int32
 	FDwfDigitalInStatus                func(deviceHandle int32, fReadData int, pStatus *byte) int32
-	FDwfDigitalInStatusData            func(deviceHandle int32, rgBytes *byte, sampleCount int) int32
+	FDwfDigitalInStatusData            func(deviceHandle int32, rgBytes *byte, countOfDataBytes int) int32
 	FDwfDigitalInStatusRecord          func(deviceHandle int32, pDataAvailable *int, pDataLost *int, pDataCorrupt *int) int32
 	FDwfDigitalInInternalClockInfo     func(deviceHandle int32, phzFreq *float64) int32
-	FDwfDigitalInDividerInfo           func(deviceHandle int32, pMin *int, pMax *int) int32
+	FDwfDigitalInDividerInfo           func(deviceHandle int32, pMax *int) int32
 	FDwfDigitalInDividerSet            func(deviceHandle int32, divider int) int32
 	FDwfDigitalInDividerGet            func(deviceHandle int32, pDivider *int) int32
 	FDwfDigitalInSampleFormatSet       func(deviceHandle int32, bits int) int32
-	FDwfDigitalInBufferSizeInfo        func(deviceHandle int32, pMin *int, pMax *int) int32
+	FDwfDigitalInBufferSizeInfo        func(deviceHandle int32, pMax *int) int32
 	FDwfDigitalInBufferSizeSet         func(deviceHandle int32, bufferSize int) int32
 	FDwfDigitalInAcquisitionModeSet    func(deviceHandle int32, acqMode int) int32
 	FDwfDigitalInTriggerSourceSet      func(deviceHandle int32, trigsrc uint8) int32
@@ -128,6 +135,12 @@ type normalizedLogicCaptureRequest struct {
 	hardwareClock float64
 }
 
+type logicAnalyzerConfig struct {
+	AppliedSampleRateHz int
+	BufferSizeSamples   int
+	Warnings            []string
+}
+
 func registerDigitalInFunctions() {
 	purego.RegisterLibFunc(&FDwfDigitalInReset, dwf, "FDwfDigitalInReset")
 	purego.RegisterLibFunc(&FDwfDigitalInConfigure, dwf, "FDwfDigitalInConfigure")
@@ -192,14 +205,14 @@ func (ad *AnalogDiscoveryDevice) performLogicCaptureOnce(normalizedReq normalize
 		Warnings:           slices.Clone(warnings),
 	}
 
-	appliedSampleRateHz, err := ad.configureLogicAnalyzer(normalizedReq)
+	config, err := ad.configureLogicAnalyzer(normalizedReq)
 	if err != nil {
 		return captureResponse, err
 	}
-	if appliedSampleRateHz <= 0 {
+	if config.AppliedSampleRateHz <= 0 {
 		return captureResponse, DeviceRuntimeError{Message: "invalid applied sample rate"}
 	}
-	if appliedSampleRateHz != normalizedReq.SampleRateHz {
+	if config.AppliedSampleRateHz != normalizedReq.SampleRateHz {
 		warningsSet := map[string]struct{}{}
 		for _, warning := range captureResponse.Warnings {
 			warningsSet[warning] = struct{}{}
@@ -208,9 +221,15 @@ func (ad *AnalogDiscoveryDevice) performLogicCaptureOnce(normalizedReq normalize
 		captureResponse.Warnings = slices.Collect(mapKeys(warningsSet))
 		slices.Sort(captureResponse.Warnings)
 	}
-	captureResponse.SampleRateHz = appliedSampleRateHz
+	for _, warning := range config.Warnings {
+		captureResponse.Warnings = append(captureResponse.Warnings, warning)
+	}
+	captureResponse.Warnings = deduplicateStrings(captureResponse.Warnings)
+	slices.Sort(captureResponse.Warnings)
 
-	targetSamples := normalizedReq.DurationSec * appliedSampleRateHz
+	captureResponse.SampleRateHz = config.AppliedSampleRateHz
+
+	targetSamples := normalizedReq.DurationSec * config.AppliedSampleRateHz
 	if targetSamples > logicAnalyzerMaxCaptureSamples {
 		targetSamples = logicAnalyzerMaxCaptureSamples
 		captureResponse.Warnings = append(captureResponse.Warnings, "capture sample budget limit reached")
@@ -242,7 +261,7 @@ func (ad *AnalogDiscoveryDevice) performLogicCaptureOnce(normalizedReq normalize
 		warningsSet[warning] = struct{}{}
 	}
 
-	samples, triggered, loopWarnings, err := ad.collectLogicSamples(normalizedReq, targetSamples, triggered, triggerDeadline)
+	samples, triggered, loopWarnings, err := ad.collectLogicSamples(normalizedReq, config, targetSamples, triggered, triggerDeadline)
 	if err != nil {
 		return captureResponse, err
 	}
@@ -371,15 +390,15 @@ func (ad *AnalogDiscoveryDevice) normalizeLogicCaptureRequest(req LogicCaptureRe
 	return normalizedReq, warnings, nil
 }
 
-func (ad *AnalogDiscoveryDevice) configureLogicAnalyzer(req normalizedLogicCaptureRequest) (int, error) {
+func (ad *AnalogDiscoveryDevice) configureLogicAnalyzer(req normalizedLogicCaptureRequest) (logicAnalyzerConfig, error) {
 	if err := ad.dwfCall("FDwfDigitalInReset", FDwfDigitalInReset(ad.Handle)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
 	}
 	if err := ad.dwfCall("FDwfDigitalInSampleFormatSet", FDwfDigitalInSampleFormatSet(ad.Handle, 16)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
 	}
 	if err := ad.dwfCall("FDwfDigitalInAcquisitionModeSet", FDwfDigitalInAcquisitionModeSet(ad.Handle, dwfAcqModeRecord)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
 	}
 
 	divider := int(math.Round(req.hardwareClock / float64(req.SampleRateHz)))
@@ -387,42 +406,50 @@ func (ad *AnalogDiscoveryDevice) configureLogicAnalyzer(req normalizedLogicCaptu
 		divider = 1
 	}
 	if err := ad.dwfCall("FDwfDigitalInDividerSet", FDwfDigitalInDividerSet(ad.Handle, divider)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
 	}
 
 	var appliedDivider int
 	if err := ad.dwfCall("FDwfDigitalInDividerGet", FDwfDigitalInDividerGet(ad.Handle, &appliedDivider)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
 	}
 	if appliedDivider <= 0 {
-		return 0, fmt.Errorf("invalid divider applied: %d", appliedDivider)
+		return logicAnalyzerConfig{}, fmt.Errorf("invalid divider applied: %d", appliedDivider)
 	}
 	appliedRateHz := int(math.Round(req.hardwareClock / float64(appliedDivider)))
 	if appliedRateHz <= 0 {
-		return 0, fmt.Errorf("invalid applied sample rate: %d", appliedRateHz)
+		return logicAnalyzerConfig{}, fmt.Errorf("invalid applied sample rate: %d", appliedRateHz)
 	}
 
-	var bufferMin int
 	var bufferMax int
-	if err := ad.dwfCall("FDwfDigitalInBufferSizeInfo", FDwfDigitalInBufferSizeInfo(ad.Handle, &bufferMin, &bufferMax)); err != nil {
-		return 0, err
+	if err := ad.dwfCall("FDwfDigitalInBufferSizeInfo", FDwfDigitalInBufferSizeInfo(ad.Handle, &bufferMax)); err != nil {
+		return logicAnalyzerConfig{}, err
+	}
+	if bufferMax <= 0 {
+		return logicAnalyzerConfig{}, fmt.Errorf("invalid buffer size max: %d", bufferMax)
 	}
 	bufferSize := bufferMax
-	if bufferSize > bufferMax {
-		bufferSize = bufferMax
-	}
-	if bufferSize < bufferMin {
-		bufferSize = bufferMin
-	}
 	if err := ad.dwfCall("FDwfDigitalInBufferSizeSet", FDwfDigitalInBufferSizeSet(ad.Handle, bufferSize)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
+	}
+
+	warnings := []string{}
+	bufferWindowUs := int64(bufferSize) * 1_000_000 / int64(maxInt(appliedRateHz, 1))
+	if bufferWindowUs < logicAnalyzerBufferWindowWarnUs {
+		warnings = append(warnings, "capture buffer window is short for requested sample rate")
+	}
+
+	config := logicAnalyzerConfig{
+		AppliedSampleRateHz: appliedRateHz,
+		BufferSizeSamples:   bufferSize,
+		Warnings:            warnings,
 	}
 
 	if req.Trigger.Type == "immediate" {
 		if err := ad.dwfCall("FDwfDigitalInTriggerSourceSet", FDwfDigitalInTriggerSourceSet(ad.Handle, dwfTrigSrcNone)); err != nil {
-			return 0, err
+			return logicAnalyzerConfig{}, err
 		}
-		return appliedRateHz, nil
+		return config, nil
 	}
 
 	edgeMask := uint32(1 << req.Trigger.Channel)
@@ -446,34 +473,65 @@ func (ad *AnalogDiscoveryDevice) configureLogicAnalyzer(req normalizedLogicCaptu
 	}
 
 	if err := ad.dwfCall("FDwfDigitalInTriggerSourceSet", FDwfDigitalInTriggerSourceSet(ad.Handle, dwfTrigSrcDetectorDigitalIn)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
 	}
 	if err := ad.dwfCall("FDwfDigitalInTriggerSlopeSet", FDwfDigitalInTriggerSlopeSet(ad.Handle, slope)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
 	}
 	if err := ad.dwfCall("FDwfDigitalInTriggerPositionSet", FDwfDigitalInTriggerPositionSet(ad.Handle, 0)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
 	}
 	if err := ad.dwfCall("FDwfDigitalInTriggerPrefillSet", FDwfDigitalInTriggerPrefillSet(ad.Handle, 0)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
 	}
 	if err := ad.dwfCall("FDwfDigitalInTriggerAutoTimeoutSet", FDwfDigitalInTriggerAutoTimeoutSet(ad.Handle, 0)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
 	}
 	if err := ad.dwfCall("FDwfDigitalInTriggerSet", FDwfDigitalInTriggerSet(ad.Handle, 0, 0, edgeRise, edgeFall)); err != nil {
-		return 0, err
+		return logicAnalyzerConfig{}, err
 	}
 
-	return appliedRateHz, nil
+	return config, nil
 }
 
-func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureRequest, targetSamples int, triggered bool, triggerDeadline time.Time) ([]uint16, bool, []string, error) {
-	samples := make([]uint16, 0, targetSamples)
+func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureRequest, config logicAnalyzerConfig, targetSamples int, triggered bool, triggerDeadline time.Time) ([]uint16, bool, []string, error) {
+	// Minimize scheduler/GC jitter while draining the small device buffer at high sample rates.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	prevGCPercent := debug.SetGCPercent(-1)
+	defer debug.SetGCPercent(prevGCPercent)
+
+	captureStartedAt := time.Now()
+	samples := make([]uint16, targetSamples)
+	sampleOffset := 0
 	totalLost := 0
 	totalCorrupt := 0
-	readBuf := make([]byte, logicAnalyzerReadChunkSamples*2)
+	readOps := 0
+	totalReadSamples := 0
+	idleSleeps := 0
+	bufferWindow := bufferWindowDuration(config.BufferSizeSamples, config.AppliedSampleRateHz)
+	adaptiveIdleMax := logicAnalyzerIdleSleepMax
+	adaptiveIdleMin := logicAnalyzerIdleSleepMin
+	if bufferWindow > 0 {
+		pollTarget := bufferWindow / logicAnalyzerPollsPerBuffer
+		if pollTarget > 0 && pollTarget < adaptiveIdleMax {
+			adaptiveIdleMax = pollTarget
+		}
+		if adaptiveIdleMax < time.Microsecond {
+			adaptiveIdleMax = time.Microsecond
+		}
+		if adaptiveIdleMin > adaptiveIdleMax {
+			adaptiveIdleMin = adaptiveIdleMax
+		}
+	}
+	idleSleep := adaptiveIdleMin
+	maxIdleSleep := time.Duration(0)
+	consecutiveIdlePolls := 0
 
-	for len(samples) < targetSamples {
+	log.Printf("logic analyzer capture loop started: requestedRate=%dHz configuredRate=%dHz targetSamples=%d bufferSize=%d",
+		req.SampleRateHz, config.AppliedSampleRateHz, targetSamples, config.BufferSizeSamples)
+
+	for sampleOffset < targetSamples {
 		var status byte
 		if err := ad.dwfCall("FDwfDigitalInStatus", FDwfDigitalInStatus(ad.Handle, 1, &status)); err != nil {
 			return nil, false, nil, err
@@ -493,23 +551,26 @@ func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureR
 			totalCorrupt += dataCorrupt
 		}
 
-		for dataAvailable > 0 && len(samples) < targetSamples {
-			remaining := targetSamples - len(samples)
+		readSamplesThisPoll := 0
+		for dataAvailable > 0 && sampleOffset < targetSamples {
+			remaining := targetSamples - sampleOffset
 			toRead := dataAvailable
 			if toRead > remaining {
 				toRead = remaining
 			}
-			if toRead > logicAnalyzerReadChunkSamples {
-				toRead = logicAnalyzerReadChunkSamples
-			}
 
-			if err := ad.dwfCall("FDwfDigitalInStatusData", FDwfDigitalInStatusData(ad.Handle, &readBuf[0], toRead)); err != nil {
+			bytesToRead := toRead * logicAnalyzerSampleBytes
+			destBytes := unsafe.Slice((*byte)(unsafe.Pointer(&samples[sampleOffset])), bytesToRead)
+			if err := ad.dwfCall("FDwfDigitalInStatusData", FDwfDigitalInStatusData(ad.Handle, &destBytes[0], bytesToRead)); err != nil {
+				log.Printf("logic analyzer read error: op=FDwfDigitalInStatusData toReadSamples=%d toReadBytes=%d sampleOffset=%d targetSamples=%d configuredRate=%dHz err=%v",
+					toRead, bytesToRead, sampleOffset, targetSamples, config.AppliedSampleRateHz, err)
 				return nil, false, nil, err
 			}
 
-			for i := 0; i < toRead; i++ {
-				samples = append(samples, binary.LittleEndian.Uint16(readBuf[i*2:(i+1)*2]))
-			}
+			sampleOffset += toRead
+			readOps++
+			totalReadSamples += toRead
+			readSamplesThisPoll += toRead
 
 			dataAvailable -= toRead
 			if !triggered {
@@ -519,34 +580,80 @@ func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureR
 		}
 
 		if !triggered && req.Trigger.Type == "edge" && time.Now().After(triggerDeadline) {
-			warnings := logicCaptureWarnings(totalLost, totalCorrupt, len(samples))
+			warnings := logicCaptureWarnings(totalLost, totalCorrupt, sampleOffset)
 			return nil, false, warnings, nil
 		}
 
-		if dataAvailable <= 0 {
-			time.Sleep(1 * time.Millisecond)
+		if readSamplesThisPoll == 0 {
+			// Avoid adding latency immediately after a productive poll. Short spin polls reduce
+			// risk of overrunning small capture buffers at high sample rates.
+			if consecutiveIdlePolls >= logicAnalyzerIdleSpinPolls {
+				idleSleeps++
+				if idleSleep <= time.Microsecond {
+					runtime.Gosched()
+				} else {
+					time.Sleep(idleSleep)
+				}
+				if idleSleep > maxIdleSleep {
+					maxIdleSleep = idleSleep
+				}
+				if idleSleep < adaptiveIdleMax {
+					idleSleep *= 2
+					if idleSleep > adaptiveIdleMax {
+						idleSleep = adaptiveIdleMax
+					}
+				}
+			}
+			consecutiveIdlePolls++
+		} else {
+			consecutiveIdlePolls = 0
+			idleSleep = adaptiveIdleMin
 		}
 	}
 
 	warnings := logicCaptureWarnings(totalLost, totalCorrupt, len(samples))
-	log.Printf("logic analyzer record counters: lost=%d corrupt=%d captured=%d", totalLost, totalCorrupt, len(samples))
+	avgRead := 0
+	if readOps > 0 {
+		avgRead = totalReadSamples / readOps
+	}
+	elapsed := time.Since(captureStartedAt)
+	readRate := 0.0
+	if elapsed > 0 {
+		readRate = float64(totalReadSamples) / elapsed.Seconds()
+	}
+	log.Printf("logic analyzer capture telemetry: lost=%d corrupt=%d captured=%d readOps=%d avgReadSamples=%d idleSleeps=%d maxIdleSleep=%s elapsed=%s readRate=%.0fS/s",
+		totalLost, totalCorrupt, len(samples), readOps, avgRead, idleSleeps, maxIdleSleep, elapsed, readRate)
 
 	return samples, triggered, warnings, nil
 }
 
+func bufferWindowDuration(bufferSizeSamples int, sampleRateHz int) time.Duration {
+	if bufferSizeSamples <= 0 || sampleRateHz <= 0 {
+		return 0
+	}
+	windowUs := int64(bufferSizeSamples) * 1_000_000 / int64(sampleRateHz)
+	if windowUs <= 0 {
+		return time.Microsecond
+	}
+	return time.Duration(windowUs) * time.Microsecond
+}
+
 func logicCaptureWarnings(totalLost int, totalCorrupt int, captured int) []string {
 	warnings := []string{}
+	capturedSafe := maxInt(captured, 1)
 	if totalLost > 0 {
-		warnings = append(warnings, "sample data lost")
+		lostPct := float64(totalLost) * 100 / float64(capturedSafe)
+		warnings = append(warnings, fmt.Sprintf("sample data lost: %d (%.6f%%)", totalLost, lostPct))
 	}
 
 	if totalCorrupt > 0 {
-		thresholdByRatio := int(float64(maxInt(captured, 1)) * logicAnalyzerCorruptWarnMinRatio)
+		thresholdByRatio := int(float64(capturedSafe) * logicAnalyzerCorruptWarnMinRatio)
 		if thresholdByRatio < logicAnalyzerCorruptWarnMinCount {
 			thresholdByRatio = logicAnalyzerCorruptWarnMinCount
 		}
 		if totalCorrupt >= thresholdByRatio {
-			warnings = append(warnings, "sample data corrupt")
+			corruptPct := float64(totalCorrupt) * 100 / float64(capturedSafe)
+			warnings = append(warnings, fmt.Sprintf("sample data corrupt: %d (%.6f%%)", totalCorrupt, corruptPct))
 		}
 	}
 	return warnings
