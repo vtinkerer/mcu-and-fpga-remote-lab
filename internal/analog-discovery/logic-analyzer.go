@@ -14,13 +14,13 @@ import (
 )
 
 const (
-	logicAnalyzerDefaultSampleRateHz = 2_000_000
+	logicAnalyzerDefaultSampleRateHz = 250_000
 	logicAnalyzerMinSampleRateHz     = 1_000
 	logicAnalyzerMinDurationSec      = 1
 	logicAnalyzerMaxDurationSec      = 10
 	logicAnalyzerMaxCaptureSamples   = 20_000_000
 	logicAnalyzerDefaultTimeoutSec   = 10
-	logicAnalyzerMaxUserSampleRateHz = 250_000
+	logicAnalyzerMaxUserSampleRateHz = 2_000_000
 	logicAnalyzerCorruptWarnMinCount = 32
 	logicAnalyzerCorruptWarnMinRatio = 0.0001
 	logicAnalyzerReadChunkSamples    = 8192
