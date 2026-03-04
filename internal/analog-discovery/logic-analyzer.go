@@ -28,7 +28,6 @@ const (
 	logicAnalyzerIdleSleepMin        = 25 * time.Microsecond
 	logicAnalyzerIdleSleepMax        = 200 * time.Microsecond
 	logicAnalyzerIdleSpinPolls       = 4
-	logicAnalyzerBufferWindowWarnUs  = 2_000
 	logicAnalyzerPollsPerBuffer      = 12
 	logicAnalyzerSampleBytes         = 2 // 16-bit sample format
 )
@@ -138,7 +137,6 @@ type normalizedLogicCaptureRequest struct {
 type logicAnalyzerConfig struct {
 	AppliedSampleRateHz int
 	BufferSizeSamples   int
-	Warnings            []string
 }
 
 func registerDigitalInFunctions() {
@@ -212,28 +210,12 @@ func (ad *AnalogDiscoveryDevice) performLogicCaptureOnce(normalizedReq normalize
 	if config.AppliedSampleRateHz <= 0 {
 		return captureResponse, DeviceRuntimeError{Message: "invalid applied sample rate"}
 	}
-	if config.AppliedSampleRateHz != normalizedReq.SampleRateHz {
-		warningsSet := map[string]struct{}{}
-		for _, warning := range captureResponse.Warnings {
-			warningsSet[warning] = struct{}{}
-		}
-		warningsSet["sampleRateHz adjusted by hardware divider"] = struct{}{}
-		captureResponse.Warnings = slices.Collect(mapKeys(warningsSet))
-		slices.Sort(captureResponse.Warnings)
-	}
-	for _, warning := range config.Warnings {
-		captureResponse.Warnings = append(captureResponse.Warnings, warning)
-	}
-	captureResponse.Warnings = deduplicateStrings(captureResponse.Warnings)
-	slices.Sort(captureResponse.Warnings)
 
 	captureResponse.SampleRateHz = config.AppliedSampleRateHz
 
 	targetSamples := normalizedReq.DurationSec * config.AppliedSampleRateHz
 	if targetSamples > logicAnalyzerMaxCaptureSamples {
 		targetSamples = logicAnalyzerMaxCaptureSamples
-		captureResponse.Warnings = append(captureResponse.Warnings, "capture sample budget limit reached")
-		captureResponse.Warnings = deduplicateStrings(captureResponse.Warnings)
 	}
 	if targetSamples <= 0 {
 		return captureResponse, ValidationError{Message: "invalid capture target"}
@@ -256,32 +238,24 @@ func (ad *AnalogDiscoveryDevice) performLogicCaptureOnce(normalizedReq normalize
 	}
 
 	triggerDeadline := time.Now().Add(time.Duration(normalizedReq.Trigger.TimeoutSec) * time.Second)
-	warningsSet := map[string]struct{}{}
-	for _, warning := range warnings {
-		warningsSet[warning] = struct{}{}
-	}
+	warningsSet := warningSetFromSlice(warnings)
 
 	samples, triggered, loopWarnings, err := ad.collectLogicSamples(normalizedReq, config, targetSamples, triggered, triggerDeadline)
 	if err != nil {
 		return captureResponse, err
 	}
-	for _, warning := range loopWarnings {
-		warningsSet[warning] = struct{}{}
-	}
+	warningSetAddAll(warningsSet, loopWarnings)
 
-	captureResponse.Warnings = slices.Collect(mapKeys(warningsSet))
-	slices.Sort(captureResponse.Warnings)
+	captureResponse.Warnings = warningSetSortedSlice(warningsSet)
 
 	if !triggered {
-		captureResponse.Warnings = append(captureResponse.Warnings, "edge trigger timeout")
-		captureResponse.Warnings = deduplicateStrings(captureResponse.Warnings)
+		captureResponse.Warnings = appendUniqueWarning(captureResponse.Warnings, "edge trigger timeout")
 		log.Printf("logic analyzer trigger timeout")
 		return captureResponse, nil
 	}
 
 	if len(samples) == 0 {
-		captureResponse.Warnings = append(captureResponse.Warnings, "no samples captured")
-		captureResponse.Warnings = deduplicateStrings(captureResponse.Warnings)
+		captureResponse.Warnings = appendUniqueWarning(captureResponse.Warnings, "no samples captured")
 		captureResponse.Triggered = true
 		return captureResponse, nil
 	}
@@ -433,16 +407,9 @@ func (ad *AnalogDiscoveryDevice) configureLogicAnalyzer(req normalizedLogicCaptu
 		return logicAnalyzerConfig{}, err
 	}
 
-	warnings := []string{}
-	bufferWindowUs := int64(bufferSize) * 1_000_000 / int64(maxInt(appliedRateHz, 1))
-	if bufferWindowUs < logicAnalyzerBufferWindowWarnUs {
-		warnings = append(warnings, "capture buffer window is short for requested sample rate")
-	}
-
 	config := logicAnalyzerConfig{
 		AppliedSampleRateHz: appliedRateHz,
 		BufferSizeSamples:   bufferSize,
-		Warnings:            warnings,
 	}
 
 	if req.Trigger.Type == "immediate" {
@@ -452,25 +419,7 @@ func (ad *AnalogDiscoveryDevice) configureLogicAnalyzer(req normalizedLogicCaptu
 		return config, nil
 	}
 
-	edgeMask := uint32(1 << req.Trigger.Channel)
-	var edgeRise uint32
-	var edgeFall uint32
-	var slope int
-
-	switch req.Trigger.Edge {
-	case "rising":
-		edgeRise = edgeMask
-		edgeFall = 0
-		slope = dwfTrigSlopeRise
-	case "falling":
-		edgeRise = 0
-		edgeFall = edgeMask
-		slope = dwfTrigSlopeFall
-	default:
-		edgeRise = edgeMask
-		edgeFall = edgeMask
-		slope = dwfTrigSlopeEither
-	}
+	edgeRise, edgeFall, slope := digitalTriggerEdgeConfig(req.Trigger.Channel, req.Trigger.Edge)
 
 	if err := ad.dwfCall("FDwfDigitalInTriggerSourceSet", FDwfDigitalInTriggerSourceSet(ad.Handle, dwfTrigSrcDetectorDigitalIn)); err != nil {
 		return logicAnalyzerConfig{}, err
@@ -732,37 +681,49 @@ func getLastDwfErrorMessage() string {
 	return strings.TrimSpace(message)
 }
 
-func deduplicateStrings(values []string) []string {
-	if len(values) == 0 {
-		return values
-	}
-	seen := make(map[string]struct{}, len(values))
-	result := make([]string, 0, len(values))
+func warningSetFromSlice(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	warningSetAddAll(set, values)
+	return set
+}
+
+func warningSetAddAll(set map[string]struct{}, values []string) {
 	for _, value := range values {
-		if _, exists := seen[value]; exists {
-			continue
-		}
-		seen[value] = struct{}{}
+		set[value] = struct{}{}
+	}
+}
+
+func warningSetSortedSlice(set map[string]struct{}) []string {
+	if len(set) == 0 {
+		return []string{}
+	}
+	result := make([]string, 0, len(set))
+	for value := range set {
 		result = append(result, value)
 	}
+	slices.Sort(result)
 	return result
 }
 
-func mapKeys[K comparable, V any](m map[K]V) func(func(K) bool) {
-	return func(yield func(K) bool) {
-		for key := range m {
-			if !yield(key) {
-				return
-			}
+func appendUniqueWarning(warnings []string, warning string) []string {
+	for _, existing := range warnings {
+		if existing == warning {
+			return warnings
 		}
 	}
+	return append(warnings, warning)
 }
 
-func minInt(a int, b int) int {
-	if a < b {
-		return a
+func digitalTriggerEdgeConfig(channel int, edge string) (uint32, uint32, int) {
+	edgeMask := uint32(1 << channel)
+	switch edge {
+	case "rising":
+		return edgeMask, 0, dwfTrigSlopeRise
+	case "falling":
+		return 0, edgeMask, dwfTrigSlopeFall
+	default:
+		return edgeMask, edgeMask, dwfTrigSlopeEither
 	}
-	return b
 }
 
 func maxInt(a int, b int) int {
