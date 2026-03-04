@@ -29,7 +29,7 @@ const (
 )
 
 const (
-	dwfAcqModeRecord = 3
+	dwfAcqModeSingle = 0
 
 	dwfTrigSrcNone              = 0
 	dwfTrigSrcDetectorDigitalIn = 3
@@ -37,6 +37,8 @@ const (
 	dwfTrigSlopeRise   = 0
 	dwfTrigSlopeFall   = 1
 	dwfTrigSlopeEither = 2
+
+	dwfStateDone = 2
 )
 
 var (
@@ -367,7 +369,7 @@ func (ad *AnalogDiscoveryDevice) configureLogicAnalyzer(req normalizedLogicCaptu
 	if err := ad.dwfCall("FDwfDigitalInSampleFormatSet", FDwfDigitalInSampleFormatSet(ad.Handle, 16)); err != nil {
 		return logicAnalyzerConfig{}, err
 	}
-	if err := ad.dwfCall("FDwfDigitalInAcquisitionModeSet", FDwfDigitalInAcquisitionModeSet(ad.Handle, dwfAcqModeRecord)); err != nil {
+	if err := ad.dwfCall("FDwfDigitalInAcquisitionModeSet", FDwfDigitalInAcquisitionModeSet(ad.Handle, dwfAcqModeSingle)); err != nil {
 		return logicAnalyzerConfig{}, err
 	}
 
@@ -442,20 +444,13 @@ func (ad *AnalogDiscoveryDevice) configureLogicAnalyzer(req normalizedLogicCaptu
 }
 
 func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureRequest, config logicAnalyzerConfig, targetSamples int, triggered bool, triggerDeadline time.Time) ([]uint16, bool, []string, error) {
-	// Minimize scheduler/GC jitter while draining the small device buffer at high sample rates.
+	// Keep polling and memory work deterministic while waiting for a single-buffer capture.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	prevGCPercent := debug.SetGCPercent(-1)
 	defer debug.SetGCPercent(prevGCPercent)
 
 	captureStartedAt := time.Now()
-	samples := make([]uint16, targetSamples)
-	sampleOffset := 0
-	totalLost := 0
-	totalCorrupt := 0
-	readOps := 0
-	totalReadSamples := 0
-	idleSleeps := 0
 	bufferWindow := bufferWindowDuration(config.BufferSizeSamples, config.AppliedSampleRateHz)
 	adaptiveIdleMax := logicAnalyzerIdleSleepMax
 	adaptiveIdleMin := logicAnalyzerIdleSleepMin
@@ -471,10 +466,6 @@ func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureR
 			adaptiveIdleMin = adaptiveIdleMax
 		}
 	}
-	idleSleep := adaptiveIdleMin
-	maxIdleSleep := time.Duration(0)
-	consecutiveIdlePolls := 0
-
 	log.Printf("logic analyzer capture loop started: requestedRate=%dHz configuredRate=%dHz targetSamples=%d bufferSize=%d",
 		req.SampleRateHz, config.AppliedSampleRateHz, targetSamples, config.BufferSizeSamples)
 	targetBuffers := 0.0
@@ -484,105 +475,62 @@ func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureR
 	log.Printf("logic analyzer capture plan: targetBuffers=%.3f (targetSamples=%d / bufferSize=%d)",
 		targetBuffers, targetSamples, config.BufferSizeSamples)
 
-	for sampleOffset < targetSamples {
+	idleSleeps := 0
+	maxIdleSleep := time.Duration(0)
+	idleSleep := adaptiveIdleMin
+	for {
 		var status byte
 		if err := ad.dwfCall("FDwfDigitalInStatus", FDwfDigitalInStatus(ad.Handle, 1, &status)); err != nil {
 			return nil, false, nil, err
 		}
-
-		var dataAvailable int
-		var dataLost int
-		var dataCorrupt int
-		if err := ad.dwfCall("FDwfDigitalInStatusRecord", FDwfDigitalInStatusRecord(ad.Handle, &dataAvailable, &dataLost, &dataCorrupt)); err != nil {
-			return nil, false, nil, err
+		if status == dwfStateDone {
+			break
 		}
 
-		if dataLost > 0 {
-			totalLost += dataLost
-		}
-		if dataCorrupt > 0 {
-			totalCorrupt += dataCorrupt
+		if req.Trigger.Type == "edge" && time.Now().After(triggerDeadline) {
+			log.Printf("logic analyzer edge trigger wait timed out before capture completion")
+			return nil, false, nil, nil
 		}
 
-		readSamplesThisPoll := 0
-		for dataAvailable > 0 && sampleOffset < targetSamples {
-			remaining := targetSamples - sampleOffset
-			toRead := dataAvailable
-			if toRead > remaining {
-				toRead = remaining
-			}
-
-			bytesToRead := toRead * logicAnalyzerSampleBytes
-			destBytes := unsafe.Slice((*byte)(unsafe.Pointer(&samples[sampleOffset])), bytesToRead)
-			if err := ad.dwfCall("FDwfDigitalInStatusData", FDwfDigitalInStatusData(ad.Handle, &destBytes[0], bytesToRead)); err != nil {
-				log.Printf("logic analyzer read error: op=FDwfDigitalInStatusData toReadSamples=%d toReadBytes=%d sampleOffset=%d targetSamples=%d configuredRate=%dHz err=%v",
-					toRead, bytesToRead, sampleOffset, targetSamples, config.AppliedSampleRateHz, err)
-				return nil, false, nil, err
-			}
-
-			sampleOffset += toRead
-			readOps++
-			totalReadSamples += toRead
-			readSamplesThisPoll += toRead
-
-			dataAvailable -= toRead
-			if !triggered {
-				triggered = true
-				log.Printf("logic analyzer edge trigger fired")
-			}
-		}
-
-		if !triggered && req.Trigger.Type == "edge" && time.Now().After(triggerDeadline) {
-			warnings := logicCaptureWarnings(totalLost, totalCorrupt, sampleOffset)
-			return nil, false, warnings, nil
-		}
-
-		if readSamplesThisPoll == 0 {
-			// Avoid adding latency immediately after a productive poll. Short spin polls reduce
-			// risk of overrunning small capture buffers at high sample rates.
-			if consecutiveIdlePolls >= logicAnalyzerIdleSpinPolls {
-				idleSleeps++
-				if idleSleep <= time.Microsecond {
-					runtime.Gosched()
-				} else {
-					time.Sleep(idleSleep)
-				}
-				if idleSleep > maxIdleSleep {
-					maxIdleSleep = idleSleep
-				}
-				if idleSleep < adaptiveIdleMax {
-					idleSleep *= 2
-					if idleSleep > adaptiveIdleMax {
-						idleSleep = adaptiveIdleMax
-					}
-				}
-			}
-			consecutiveIdlePolls++
+		idleSleeps++
+		if idleSleep <= time.Microsecond {
+			runtime.Gosched()
 		} else {
-			consecutiveIdlePolls = 0
-			idleSleep = adaptiveIdleMin
+			time.Sleep(idleSleep)
+		}
+		if idleSleep > maxIdleSleep {
+			maxIdleSleep = idleSleep
+		}
+		if idleSleep < adaptiveIdleMax {
+			idleSleep *= 2
+			if idleSleep > adaptiveIdleMax {
+				idleSleep = adaptiveIdleMax
+			}
 		}
 	}
 
-	warnings := logicCaptureWarnings(totalLost, totalCorrupt, len(samples))
-	avgRead := 0
-	if readOps > 0 {
-		avgRead = totalReadSamples / readOps
+	samples := make([]uint16, targetSamples)
+	bytesToRead := targetSamples * logicAnalyzerSampleBytes
+	destBytes := unsafe.Slice((*byte)(unsafe.Pointer(&samples[0])), bytesToRead)
+	if err := ad.dwfCall("FDwfDigitalInStatusData", FDwfDigitalInStatusData(ad.Handle, &destBytes[0], bytesToRead)); err != nil {
+		log.Printf("logic analyzer read error: op=FDwfDigitalInStatusData toReadSamples=%d toReadBytes=%d configuredRate=%dHz err=%v",
+			targetSamples, bytesToRead, config.AppliedSampleRateHz, err)
+		return nil, false, nil, err
 	}
+	if !triggered {
+		triggered = true
+		log.Printf("logic analyzer edge trigger fired")
+	}
+
 	elapsed := time.Since(captureStartedAt)
 	readRate := 0.0
 	if elapsed > 0 {
-		readRate = float64(totalReadSamples) / elapsed.Seconds()
+		readRate = float64(targetSamples) / elapsed.Seconds()
 	}
-	rawSamplesObserved := totalReadSamples + totalLost + totalCorrupt
-	effectiveBuffersUsed := 0.0
-	if config.BufferSizeSamples > 0 {
-		effectiveBuffersUsed = float64(rawSamplesObserved) / float64(config.BufferSizeSamples)
-	}
-	log.Printf("logic analyzer capture telemetry: bufferSize=%d targetSamples=%d targetBuffers=%.3f observedSamples=%d captured=%d lost=%d corrupt=%d effectiveBuffersUsed=%.3f readOps=%d avgReadSamples=%d idleSleeps=%d maxIdleSleep=%s elapsed=%s readRate=%.0fS/s",
-		config.BufferSizeSamples, targetSamples, targetBuffers, rawSamplesObserved, len(samples), totalLost, totalCorrupt, effectiveBuffersUsed, readOps, avgRead, idleSleeps, maxIdleSleep, elapsed, readRate)
+	log.Printf("logic analyzer capture telemetry: acquisitionMode=single bufferSize=%d targetSamples=%d targetBuffers=%.3f observedSamples=%d captured=%d lost=%d corrupt=%d effectiveBuffersUsed=%.3f readOps=%d avgReadSamples=%d idleSleeps=%d maxIdleSleep=%s elapsed=%s readRate=%.0fS/s",
+		config.BufferSizeSamples, targetSamples, targetBuffers, targetSamples, len(samples), 0, 0, 1.0, 1, targetSamples, idleSleeps, maxIdleSleep, elapsed, readRate)
 
-	return samples, triggered, warnings, nil
+	return samples, triggered, nil, nil
 }
 
 func bufferWindowDuration(bufferSizeSamples int, sampleRateHz int) time.Duration {
