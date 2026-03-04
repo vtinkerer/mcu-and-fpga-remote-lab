@@ -324,37 +324,35 @@ func (ad *AnalogDiscoveryDevice) normalizeLogicCaptureRequest(req LogicCaptureRe
 		return normalizedLogicCaptureRequest{}, nil, err
 	}
 
-	requestedRate := int(math.Round((float64(bufferMax) * 1_000_000) / float64(req.MeasurementTimeUs)))
-	if requestedRate < 1 {
-		requestedRate = 1
+	// Max allowed sample rate that still guarantees one-buffer measurement time >= requested.
+	maxRateForRequestedTime := int((int64(bufferMax) * 1_000_000) / req.MeasurementTimeUs)
+	if maxRateForRequestedTime < 1 {
+		maxRateForRequestedTime = 1
 	}
 
-	maxAllowedRate := int(math.Floor(internalClock))
-	if maxAllowedRate < logicAnalyzerMinSampleRateHz {
-		maxAllowedRate = logicAnalyzerMinSampleRateHz
+	hardwareMaxRate := int(math.Floor(internalClock))
+	if hardwareMaxRate < 1 {
+		return normalizedLogicCaptureRequest{}, nil, DeviceRuntimeError{Message: "invalid hardware max sample rate"}
 	}
 
-	effectiveRate := requestedRate
-	if effectiveRate < logicAnalyzerMinSampleRateHz {
-		effectiveRate = logicAnalyzerMinSampleRateHz
-	}
-	if effectiveRate > maxAllowedRate {
-		effectiveRate = maxAllowedRate
-	}
-
+	effectiveRate := maxRateForRequestedTime
 	warnings := []string{}
-	if effectiveRate != requestedRate {
-		warnings = append(warnings, "calculated sampleRateHz clamped")
+	if effectiveRate > hardwareMaxRate {
+		effectiveRate = hardwareMaxRate
+		warnings = append(warnings, "calculated sampleRateHz clamped by hardware max")
 	}
-	log.Printf("logic analyzer normalization: measurementTimeUs=%d bufferMax=%d requestedRate=%dHz effectiveRate=%dHz",
-		req.MeasurementTimeUs, bufferMax, requestedRate, effectiveRate)
+	if effectiveRate < logicAnalyzerMinSampleRateHz {
+		return normalizedLogicCaptureRequest{}, nil, ValidationError{Message: fmt.Sprintf("measurementTimeUs too large for one-buffer capture; max is %d us", measurementWindowUs(bufferMax, logicAnalyzerMinSampleRateHz))}
+	}
+	log.Printf("logic analyzer normalization: measurementTimeUs=%d bufferMax=%d maxRateForRequestedTime=%dHz effectiveRate=%dHz",
+		req.MeasurementTimeUs, bufferMax, maxRateForRequestedTime, effectiveRate)
 
 	normalizedReq := normalizedLogicCaptureRequest{
 		MeasurementTimeUs: req.MeasurementTimeUs,
 		Channels:          slices.Clone(req.Channels),
 		SampleRateHz:      effectiveRate,
 		Trigger:           normalizedTrigger,
-		requestedRate: requestedRate,
+		requestedRate: maxRateForRequestedTime,
 		hardwareClock: internalClock,
 		bufferMax:     bufferMax,
 	}
@@ -373,7 +371,8 @@ func (ad *AnalogDiscoveryDevice) configureLogicAnalyzer(req normalizedLogicCaptu
 		return logicAnalyzerConfig{}, err
 	}
 
-	divider := int(math.Round(req.hardwareClock / float64(req.SampleRateHz)))
+	// Use ceil so appliedRateHz never exceeds requested max rate.
+	divider := int(math.Ceil(req.hardwareClock / float64(req.SampleRateHz)))
 	if divider < 1 {
 		divider = 1
 	}
@@ -509,6 +508,16 @@ func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureR
 		}
 	}
 
+	dataAvailable := 0
+	totalLost := 0
+	totalCorrupt := 0
+	if err := ad.dwfCall("FDwfDigitalInStatusRecord", FDwfDigitalInStatusRecord(ad.Handle, &dataAvailable, &totalLost, &totalCorrupt)); err != nil {
+		log.Printf("logic analyzer status record read failed in single mode: err=%v", err)
+		dataAvailable = 0
+		totalLost = 0
+		totalCorrupt = 0
+	}
+
 	samples := make([]uint16, targetSamples)
 	bytesToRead := targetSamples * logicAnalyzerSampleBytes
 	destBytes := unsafe.Slice((*byte)(unsafe.Pointer(&samples[0])), bytesToRead)
@@ -527,10 +536,17 @@ func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureR
 	if elapsed > 0 {
 		readRate = float64(targetSamples) / elapsed.Seconds()
 	}
+	warnings := logicCaptureWarnings(totalLost, totalCorrupt, len(samples))
+	rawSamplesObserved := targetSamples + totalLost + totalCorrupt
+	effectiveBuffersUsed := 1.0
+	if config.BufferSizeSamples > 0 {
+		effectiveBuffersUsed = float64(rawSamplesObserved) / float64(config.BufferSizeSamples)
+	}
 	log.Printf("logic analyzer capture telemetry: acquisitionMode=single bufferSize=%d targetSamples=%d targetBuffers=%.3f observedSamples=%d captured=%d lost=%d corrupt=%d effectiveBuffersUsed=%.3f readOps=%d avgReadSamples=%d idleSleeps=%d maxIdleSleep=%s elapsed=%s readRate=%.0fS/s",
-		config.BufferSizeSamples, targetSamples, targetBuffers, targetSamples, len(samples), 0, 0, 1.0, 1, targetSamples, idleSleeps, maxIdleSleep, elapsed, readRate)
+		config.BufferSizeSamples, targetSamples, targetBuffers, rawSamplesObserved, len(samples), totalLost, totalCorrupt, effectiveBuffersUsed, 1, targetSamples, idleSleeps, maxIdleSleep, elapsed, readRate)
+	log.Printf("logic analyzer single-mode status record: available=%d lost=%d corrupt=%d", dataAvailable, totalLost, totalCorrupt)
 
-	return samples, triggered, nil, nil
+	return samples, triggered, warnings, nil
 }
 
 func bufferWindowDuration(bufferSizeSamples int, sampleRateHz int) time.Duration {
