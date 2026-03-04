@@ -16,13 +16,9 @@ import (
 )
 
 const (
-	logicAnalyzerDefaultSampleRateHz = 250_000
 	logicAnalyzerMinSampleRateHz     = 1_000
-	logicAnalyzerMinDurationSec      = 1
-	logicAnalyzerMaxDurationSec      = 10
-	logicAnalyzerMaxCaptureSamples   = 20_000_000
+	logicAnalyzerMinMeasurementUs    = 1
 	logicAnalyzerDefaultTimeoutSec   = 10
-	logicAnalyzerMaxUserSampleRateHz = 1_000_000
 	logicAnalyzerCorruptWarnMinCount = 32
 	logicAnalyzerCorruptWarnMinRatio = 0.0001
 	logicAnalyzerIdleSleepMin        = 25 * time.Microsecond
@@ -56,6 +52,7 @@ var (
 	FDwfDigitalInSampleFormatSet       func(deviceHandle int32, bits int) int32
 	FDwfDigitalInBufferSizeInfo        func(deviceHandle int32, pMax *int) int32
 	FDwfDigitalInBufferSizeSet         func(deviceHandle int32, bufferSize int) int32
+	FDwfDigitalInBufferSizeGet         func(deviceHandle int32, pBufferSize *int) int32
 	FDwfDigitalInAcquisitionModeSet    func(deviceHandle int32, acqMode int) int32
 	FDwfDigitalInTriggerSourceSet      func(deviceHandle int32, trigsrc uint8) int32
 	FDwfDigitalInTriggerSlopeSet       func(deviceHandle int32, slope int) int32
@@ -99,10 +96,9 @@ type LogicCaptureTrigger struct {
 }
 
 type LogicCaptureRequest struct {
-	DurationSec  int                 `json:"durationSec"`
-	Channels     []int               `json:"channels"`
-	SampleRateHz int                 `json:"sampleRateHz"`
-	Trigger      LogicCaptureTrigger `json:"trigger"`
+	MeasurementTimeUs int64               `json:"measurementTimeUs"`
+	Channels          []int               `json:"channels"`
+	Trigger           LogicCaptureTrigger `json:"trigger"`
 }
 
 type LogicCaptureTransition struct {
@@ -116,7 +112,7 @@ type LogicCaptureChannel struct {
 }
 
 type LogicCaptureResponse struct {
-	DurationSec        int                   `json:"durationSec"`
+	MeasurementTimeUs  int64                 `json:"measurementTimeUs"`
 	SampleRateHz       int                   `json:"sampleRateHz"`
 	Triggered          bool                  `json:"triggered"`
 	TriggerTimestampUs int64                 `json:"triggerTimestampUs"`
@@ -125,13 +121,14 @@ type LogicCaptureResponse struct {
 }
 
 type normalizedLogicCaptureRequest struct {
-	DurationSec  int
-	Channels     []int
-	SampleRateHz int
-	Trigger      LogicCaptureTrigger
+	MeasurementTimeUs int64
+	Channels          []int
+	SampleRateHz      int
+	Trigger           LogicCaptureTrigger
 
 	requestedRate int
 	hardwareClock float64
+	bufferMax     int
 }
 
 type logicAnalyzerConfig struct {
@@ -152,6 +149,7 @@ func registerDigitalInFunctions() {
 	purego.RegisterLibFunc(&FDwfDigitalInSampleFormatSet, dwf, "FDwfDigitalInSampleFormatSet")
 	purego.RegisterLibFunc(&FDwfDigitalInBufferSizeInfo, dwf, "FDwfDigitalInBufferSizeInfo")
 	purego.RegisterLibFunc(&FDwfDigitalInBufferSizeSet, dwf, "FDwfDigitalInBufferSizeSet")
+	purego.RegisterLibFunc(&FDwfDigitalInBufferSizeGet, dwf, "FDwfDigitalInBufferSizeGet")
 	purego.RegisterLibFunc(&FDwfDigitalInAcquisitionModeSet, dwf, "FDwfDigitalInAcquisitionModeSet")
 	purego.RegisterLibFunc(&FDwfDigitalInTriggerSourceSet, dwf, "FDwfDigitalInTriggerSourceSet")
 	purego.RegisterLibFunc(&FDwfDigitalInTriggerSlopeSet, dwf, "FDwfDigitalInTriggerSlopeSet")
@@ -176,8 +174,8 @@ func (ad *AnalogDiscoveryDevice) CaptureLogicTransitions(req LogicCaptureRequest
 		return LogicCaptureResponse{}, err
 	}
 
-	log.Printf("logic analyzer capture request: durationSec=%d channels=%v sampleRateHz=%d triggerType=%s triggerChannel=%d triggerEdge=%s timeoutSec=%d",
-		normalizedReq.DurationSec,
+	log.Printf("logic analyzer capture request: measurementTimeUs=%d channels=%v sampleRateHz=%d triggerType=%s triggerChannel=%d triggerEdge=%s timeoutSec=%d",
+		normalizedReq.MeasurementTimeUs,
 		normalizedReq.Channels,
 		normalizedReq.SampleRateHz,
 		normalizedReq.Trigger.Type,
@@ -195,7 +193,7 @@ func (ad *AnalogDiscoveryDevice) CaptureLogicTransitions(req LogicCaptureRequest
 
 func (ad *AnalogDiscoveryDevice) performLogicCaptureOnce(normalizedReq normalizedLogicCaptureRequest, warnings []string) (LogicCaptureResponse, error) {
 	captureResponse := LogicCaptureResponse{
-		DurationSec:        normalizedReq.DurationSec,
+		MeasurementTimeUs:  normalizedReq.MeasurementTimeUs,
 		SampleRateHz:       normalizedReq.SampleRateHz,
 		Triggered:          false,
 		TriggerTimestampUs: 0,
@@ -213,13 +211,11 @@ func (ad *AnalogDiscoveryDevice) performLogicCaptureOnce(normalizedReq normalize
 
 	captureResponse.SampleRateHz = config.AppliedSampleRateHz
 
-	targetSamples := normalizedReq.DurationSec * config.AppliedSampleRateHz
-	if targetSamples > logicAnalyzerMaxCaptureSamples {
-		targetSamples = logicAnalyzerMaxCaptureSamples
-	}
+	targetSamples := config.BufferSizeSamples
 	if targetSamples <= 0 {
 		return captureResponse, ValidationError{Message: "invalid capture target"}
 	}
+	captureResponse.MeasurementTimeUs = measurementWindowUs(targetSamples, config.AppliedSampleRateHz)
 
 	defer func() {
 		_ = ad.dwfCall("FDwfDigitalInConfigure(stop)", FDwfDigitalInConfigure(ad.Handle, 0, 0))
@@ -262,14 +258,14 @@ func (ad *AnalogDiscoveryDevice) performLogicCaptureOnce(normalizedReq normalize
 
 	captureResponse.Triggered = true
 	captureResponse.Channels = buildLogicTransitions(samples, captureResponse.SampleRateHz, normalizedReq.Channels)
-	log.Printf("logic analyzer capture complete: samples=%d durationSec=%d", len(samples), normalizedReq.DurationSec)
+	log.Printf("logic analyzer capture complete: samples=%d measurementTimeUs=%d", len(samples), captureResponse.MeasurementTimeUs)
 
 	return captureResponse, nil
 }
 
 func (ad *AnalogDiscoveryDevice) normalizeLogicCaptureRequest(req LogicCaptureRequest) (normalizedLogicCaptureRequest, []string, error) {
-	if req.DurationSec < logicAnalyzerMinDurationSec || req.DurationSec > logicAnalyzerMaxDurationSec {
-		return normalizedLogicCaptureRequest{}, nil, ValidationError{Message: "durationSec must be in range 1..10"}
+	if req.MeasurementTimeUs < logicAnalyzerMinMeasurementUs {
+		return normalizedLogicCaptureRequest{}, nil, ValidationError{Message: "measurementTimeUs must be >= 1"}
 	}
 
 	if len(req.Channels) == 0 {
@@ -317,24 +313,21 @@ func (ad *AnalogDiscoveryDevice) normalizeLogicCaptureRequest(req LogicCaptureRe
 		normalizedTrigger.Channel = 0
 	}
 
-	requestedRate := req.SampleRateHz
-	if requestedRate == 0 {
-		requestedRate = logicAnalyzerDefaultSampleRateHz
-	}
-
 	internalClock, err := ad.getDigitalInClockAndDividerInfo()
 	if err != nil {
 		return normalizedLogicCaptureRequest{}, nil, err
 	}
+	bufferMax, err := ad.getDigitalInBufferSizeMax()
+	if err != nil {
+		return normalizedLogicCaptureRequest{}, nil, err
+	}
 
-	maxAllowedRate := logicAnalyzerMaxCaptureSamples / req.DurationSec
-	if maxAllowedRate > logicAnalyzerMaxUserSampleRateHz {
-		maxAllowedRate = logicAnalyzerMaxUserSampleRateHz
+	requestedRate := int(math.Round((float64(bufferMax) * 1_000_000) / float64(req.MeasurementTimeUs)))
+	if requestedRate < 1 {
+		requestedRate = 1
 	}
-	hardwareSafeMaxRate := int(math.Floor(internalClock))
-	if maxAllowedRate > hardwareSafeMaxRate {
-		maxAllowedRate = hardwareSafeMaxRate
-	}
+
+	maxAllowedRate := int(math.Floor(internalClock))
 	if maxAllowedRate < logicAnalyzerMinSampleRateHz {
 		maxAllowedRate = logicAnalyzerMinSampleRateHz
 	}
@@ -349,16 +342,19 @@ func (ad *AnalogDiscoveryDevice) normalizeLogicCaptureRequest(req LogicCaptureRe
 
 	warnings := []string{}
 	if effectiveRate != requestedRate {
-		warnings = append(warnings, "sampleRateHz clamped")
+		warnings = append(warnings, "calculated sampleRateHz clamped")
 	}
+	log.Printf("logic analyzer normalization: measurementTimeUs=%d bufferMax=%d requestedRate=%dHz effectiveRate=%dHz",
+		req.MeasurementTimeUs, bufferMax, requestedRate, effectiveRate)
 
 	normalizedReq := normalizedLogicCaptureRequest{
-		DurationSec:   req.DurationSec,
-		Channels:      slices.Clone(req.Channels),
-		SampleRateHz:  effectiveRate,
-		Trigger:       normalizedTrigger,
+		MeasurementTimeUs: req.MeasurementTimeUs,
+		Channels:          slices.Clone(req.Channels),
+		SampleRateHz:      effectiveRate,
+		Trigger:           normalizedTrigger,
 		requestedRate: requestedRate,
 		hardwareClock: internalClock,
+		bufferMax:     bufferMax,
 	}
 
 	return normalizedReq, warnings, nil
@@ -395,21 +391,23 @@ func (ad *AnalogDiscoveryDevice) configureLogicAnalyzer(req normalizedLogicCaptu
 		return logicAnalyzerConfig{}, fmt.Errorf("invalid applied sample rate: %d", appliedRateHz)
 	}
 
-	var bufferMax int
-	if err := ad.dwfCall("FDwfDigitalInBufferSizeInfo", FDwfDigitalInBufferSizeInfo(ad.Handle, &bufferMax)); err != nil {
-		return logicAnalyzerConfig{}, err
-	}
-	if bufferMax <= 0 {
-		return logicAnalyzerConfig{}, fmt.Errorf("invalid buffer size max: %d", bufferMax)
-	}
-	bufferSize := bufferMax
+	bufferSize := req.bufferMax
 	if err := ad.dwfCall("FDwfDigitalInBufferSizeSet", FDwfDigitalInBufferSizeSet(ad.Handle, bufferSize)); err != nil {
 		return logicAnalyzerConfig{}, err
 	}
+	actualBufferSize := bufferSize
+	if err := ad.dwfCall("FDwfDigitalInBufferSizeGet", FDwfDigitalInBufferSizeGet(ad.Handle, &actualBufferSize)); err != nil {
+		log.Printf("logic analyzer buffer size get failed; using configured value=%d err=%v", bufferSize, err)
+		actualBufferSize = bufferSize
+	}
+	if actualBufferSize <= 0 {
+		return logicAnalyzerConfig{}, fmt.Errorf("invalid applied buffer size: %d", actualBufferSize)
+	}
+	log.Printf("logic analyzer buffer configured: requested=%d applied=%d", bufferSize, actualBufferSize)
 
 	config := logicAnalyzerConfig{
 		AppliedSampleRateHz: appliedRateHz,
-		BufferSizeSamples:   bufferSize,
+		BufferSizeSamples:   actualBufferSize,
 	}
 
 	if req.Trigger.Type == "immediate" {
@@ -479,6 +477,12 @@ func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureR
 
 	log.Printf("logic analyzer capture loop started: requestedRate=%dHz configuredRate=%dHz targetSamples=%d bufferSize=%d",
 		req.SampleRateHz, config.AppliedSampleRateHz, targetSamples, config.BufferSizeSamples)
+	targetBuffers := 0.0
+	if config.BufferSizeSamples > 0 {
+		targetBuffers = float64(targetSamples) / float64(config.BufferSizeSamples)
+	}
+	log.Printf("logic analyzer capture plan: targetBuffers=%.3f (targetSamples=%d / bufferSize=%d)",
+		targetBuffers, targetSamples, config.BufferSizeSamples)
 
 	for sampleOffset < targetSamples {
 		var status byte
@@ -570,8 +574,13 @@ func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureR
 	if elapsed > 0 {
 		readRate = float64(totalReadSamples) / elapsed.Seconds()
 	}
-	log.Printf("logic analyzer capture telemetry: lost=%d corrupt=%d captured=%d readOps=%d avgReadSamples=%d idleSleeps=%d maxIdleSleep=%s elapsed=%s readRate=%.0fS/s",
-		totalLost, totalCorrupt, len(samples), readOps, avgRead, idleSleeps, maxIdleSleep, elapsed, readRate)
+	rawSamplesObserved := totalReadSamples + totalLost + totalCorrupt
+	effectiveBuffersUsed := 0.0
+	if config.BufferSizeSamples > 0 {
+		effectiveBuffersUsed = float64(rawSamplesObserved) / float64(config.BufferSizeSamples)
+	}
+	log.Printf("logic analyzer capture telemetry: bufferSize=%d targetSamples=%d targetBuffers=%.3f observedSamples=%d captured=%d lost=%d corrupt=%d effectiveBuffersUsed=%.3f readOps=%d avgReadSamples=%d idleSleeps=%d maxIdleSleep=%s elapsed=%s readRate=%.0fS/s",
+		config.BufferSizeSamples, targetSamples, targetBuffers, rawSamplesObserved, len(samples), totalLost, totalCorrupt, effectiveBuffersUsed, readOps, avgRead, idleSleeps, maxIdleSleep, elapsed, readRate)
 
 	return samples, triggered, warnings, nil
 }
@@ -585,6 +594,17 @@ func bufferWindowDuration(bufferSizeSamples int, sampleRateHz int) time.Duration
 		return time.Microsecond
 	}
 	return time.Duration(windowUs) * time.Microsecond
+}
+
+func measurementWindowUs(samples int, sampleRateHz int) int64 {
+	if samples <= 0 || sampleRateHz <= 0 {
+		return 0
+	}
+	windowUs := int64(samples) * 1_000_000 / int64(sampleRateHz)
+	if windowUs <= 0 {
+		return 1
+	}
+	return windowUs
 }
 
 func logicCaptureWarnings(totalLost int, totalCorrupt int, captured int) []string {
@@ -658,6 +678,17 @@ func (ad *AnalogDiscoveryDevice) getDigitalInClockAndDividerInfo() (float64, err
 	}
 
 	return internalClock, nil
+}
+
+func (ad *AnalogDiscoveryDevice) getDigitalInBufferSizeMax() (int, error) {
+	var bufferMax int
+	if err := ad.dwfCall("FDwfDigitalInBufferSizeInfo", FDwfDigitalInBufferSizeInfo(ad.Handle, &bufferMax)); err != nil {
+		return 0, err
+	}
+	if bufferMax <= 0 {
+		return 0, fmt.Errorf("invalid buffer size max: %d", bufferMax)
+	}
+	return bufferMax, nil
 }
 
 func (ad *AnalogDiscoveryDevice) dwfCall(op string, result int32) error {
