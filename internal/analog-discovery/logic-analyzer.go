@@ -418,15 +418,12 @@ func (ad *AnalogDiscoveryDevice) configureLogicAnalyzer(req normalizedLogicCaptu
 		return config, nil
 	}
 
-	edgeRise, edgeFall, slope := digitalTriggerEdgeConfig(req.Trigger.Channel, req.Trigger.Edge)
+	edgeRise, edgeFall, _ := digitalTriggerEdgeConfig(req.Trigger.Channel, req.Trigger.Edge)
 
 	if err := ad.dwfCall("FDwfDigitalInTriggerSourceSet", FDwfDigitalInTriggerSourceSet(ad.Handle, dwfTrigSrcDetectorDigitalIn)); err != nil {
 		return logicAnalyzerConfig{}, err
 	}
-	if err := ad.dwfCall("FDwfDigitalInTriggerSlopeSet", FDwfDigitalInTriggerSlopeSet(ad.Handle, slope)); err != nil {
-		return logicAnalyzerConfig{}, err
-	}
-	if err := ad.dwfCall("FDwfDigitalInTriggerPositionSet", FDwfDigitalInTriggerPositionSet(ad.Handle, 0)); err != nil {
+	if err := ad.dwfCall("FDwfDigitalInTriggerPositionSet", FDwfDigitalInTriggerPositionSet(ad.Handle, uint32(actualBufferSize))); err != nil {
 		return logicAnalyzerConfig{}, err
 	}
 	if err := ad.dwfCall("FDwfDigitalInTriggerPrefillSet", FDwfDigitalInTriggerPrefillSet(ad.Handle, 0)); err != nil {
@@ -479,7 +476,7 @@ func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureR
 	idleSleep := adaptiveIdleMin
 	for {
 		var status byte
-		if err := ad.dwfCall("FDwfDigitalInStatus", FDwfDigitalInStatus(ad.Handle, 1, &status)); err != nil {
+		if err := ad.dwfCall("FDwfDigitalInStatus", FDwfDigitalInStatus(ad.Handle, 0, &status)); err != nil {
 			return nil, false, nil, err
 		}
 		if status == dwfStateDone {
@@ -506,6 +503,11 @@ func (ad *AnalogDiscoveryDevice) collectLogicSamples(req normalizedLogicCaptureR
 				idleSleep = adaptiveIdleMax
 			}
 		}
+	}
+
+	var readStatus byte
+	if err := ad.dwfCall("FDwfDigitalInStatus(readData)", FDwfDigitalInStatus(ad.Handle, 1, &readStatus)); err != nil {
+		return nil, false, nil, err
 	}
 
 	dataAvailable := 0
