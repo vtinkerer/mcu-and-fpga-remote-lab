@@ -259,6 +259,11 @@ func (ad *AnalogDiscoveryDevice) performLogicCaptureOnce(normalizedReq normalize
 	}
 
 	captureResponse.Triggered = true
+	samples, trimmed := trimToTriggerEdge(samples, normalizedReq.Trigger)
+	if trimmed > 0 {
+		captureResponse.MeasurementTimeUs = measurementWindowUs(len(samples), captureResponse.SampleRateHz)
+		log.Printf("logic analyzer trimmed %d samples for trigger edge alignment", trimmed)
+	}
 	captureResponse.Channels = buildLogicTransitions(samples, captureResponse.SampleRateHz, normalizedReq.Channels)
 	log.Printf("logic analyzer capture complete: samples=%d measurementTimeUs=%d", len(samples), captureResponse.MeasurementTimeUs)
 
@@ -625,6 +630,32 @@ func buildLogicTransitions(samples []uint16, sampleRateHz int, channels []int) [
 	}
 
 	return result
+}
+
+// trimToTriggerEdge removes leading samples that precede the actual trigger
+// edge. The DWF hardware may place a few pre-trigger samples at the start of
+// the post-trigger buffer due to internal pipeline alignment; the count varies
+// with the clock divider. We scan up to maxTrimSamples for the first sample
+// whose trigger-channel value matches the expected post-trigger state.
+func trimToTriggerEdge(samples []uint16, trigger LogicCaptureTrigger) ([]uint16, int) {
+	if trigger.Type != "edge" || len(samples) == 0 {
+		return samples, 0
+	}
+	expectedValue := 1 // rising edge → first post-trigger value is HIGH
+	if trigger.Edge == "falling" {
+		expectedValue = 0
+	}
+	const maxTrimSamples = 16
+	limit := maxTrimSamples
+	if limit > len(samples) {
+		limit = len(samples)
+	}
+	for i := 0; i < limit; i++ {
+		if bitValue(samples[i], trigger.Channel) == expectedValue {
+			return samples[i:], i
+		}
+	}
+	return samples, 0
 }
 
 func bitValue(word uint16, channel int) int {
